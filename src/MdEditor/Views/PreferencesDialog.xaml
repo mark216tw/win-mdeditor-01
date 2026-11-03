@@ -1,0 +1,64 @@
+<ContentDialog
+    x:Class="VibeCode.MdEditor.Views.PreferencesDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    Title="偏好設定"
+    CloseButtonText="取消"
+    DefaultButton="Primary"
+    PrimaryButtonText="儲存"
+    mc:Ignorable="d">
+    <StackPanel MinWidth="380" Spacing="20">
+        <ComboBox
+            x:Name="ThemeComboBox"
+            Header="主題"
+            HorizontalAlignment="Stretch" />
+
+        <ToggleSwitch
+            x:Name="SyncScrollingToggle"
+            Header="同步捲動"
+            OffContent="停用"
+            OnContent="啟用" />
+
+        <TextBlock
+            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+            Text="啟用後，在並排檢視中捲動編輯器時，預覽視窗會同步捲動到相同比例。"
+            TextWrapping="Wrap" />
+
+        <Border
+            Height="1"
+            Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+
+        <StackPanel Spacing="8">
+            <TextBlock
+                Style="{ThemeResource SubtitleTextBlockStyle}"
+                Text="檔案關聯" />
+
+            <ToggleSwitch
+                x:Name="FileAssociationToggle"
+                AutomationProperties.Name="登錄為 Markdown 檔案的開啟方式"
+                Header="登錄為 .md、.markdown 的開啟方式"
+                OffContent="未登錄"
+                OnContent="已登錄" />
+
+            <TextBlock
+                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                Text="登錄後，Markdown 編輯器會出現在「開啟方式」與 Windows「預設應用程式」清單中。Windows 不允許程式自行設定預設，請在開啟的設定頁面選擇一次。"
+                TextWrapping="Wrap" />
+
+            <Button
+                x:Name="OpenDefaultAppsButton"
+                AutomationProperties.Name="登錄並開啟 Windows 預設應用程式設定"
+                Click="OpenDefaultAppsButton_Click"
+                Content="登錄並開啟預設應用程式設定"
+                ToolTipService.ToolTip="登錄檔案關聯並開啟 Windows 預設應用程式設定" />
+
+            <InfoBar
+                x:Name="AssociationInfoBar"
+                IsClosable="True"
+                IsOpen="False"
+                Severity="Error" />
+        </StackPanel>
+    </StackPanel>
+</ContentDialog>

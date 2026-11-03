@@ -1,0 +1,79 @@
+using System.Text;
+using VibeCode.MdEditor.Core.Services;
+using Xunit;
+
+namespace VibeCode.MdEditor.Tests;
+
+public sealed class FileServiceTests
+{
+    private readonly FileService _service = new();
+
+    [Fact]
+    public async Task LoadAndSave_PreservesUtf8BomAndCrLf()
+    {
+        using var temp = new TempDirectory();
+        var path = temp.Combine("sample.md");
+        var preamble = new byte[] { 0xEF, 0xBB, 0xBF };
+        var content = Encoding.UTF8.GetBytes("Hello\r\n世界\r\n");
+        await File.WriteAllBytesAsync(path, [.. preamble, .. content]);
+
+        var loaded = await _service.LoadAsync(path);
+
+        Assert.Equal("Hello\n世界\n", loaded.Text);
+        Assert.Equal("UTF-8", loaded.EncodingName);
+        Assert.Equal("CRLF", loaded.LineEnding);
+        Assert.True(loaded.HasBom);
+        Assert.False(string.IsNullOrWhiteSpace(loaded.Hash));
+
+        await _service.SaveAsync(
+            path,
+            loaded.Text,
+            loaded.EncodingName,
+            loaded.CodePage,
+            loaded.HasBom,
+            loaded.LineEnding);
+
+        var bytes = await File.ReadAllBytesAsync(path);
+        Assert.True(bytes.Take(3).SequenceEqual(preamble));
+        var text = Encoding.UTF8.GetString(bytes.Skip(3).ToArray());
+        Assert.Equal("Hello\r\n世界\r\n", text);
+    }
+
+    [Fact]
+    public async Task Save_WritesUtf8WithoutBom_WhenSourceHadNoBom()
+    {
+        using var temp = new TempDirectory();
+        var path = temp.Combine("plain.md");
+        await File.WriteAllBytesAsync(path, new UTF8Encoding(false).GetBytes("one\ntwo\n"));
+
+        var loaded = await _service.LoadAsync(path);
+        Assert.False(loaded.HasBom);
+        Assert.Equal("LF", loaded.LineEnding);
+
+        await _service.SaveAsync(
+            path,
+            loaded.Text,
+            loaded.EncodingName,
+            loaded.CodePage,
+            loaded.HasBom,
+            loaded.LineEnding);
+
+        var bytes = await File.ReadAllBytesAsync(path);
+        Assert.False(bytes.Take(3).SequenceEqual(new byte[] { 0xEF, 0xBB, 0xBF }));
+        Assert.Equal("one\ntwo\n", Encoding.UTF8.GetString(bytes));
+    }
+
+    [Fact]
+    public async Task ComputeStamp_ChangesWhenFileChanges()
+    {
+        using var temp = new TempDirectory();
+        var path = temp.Combine("stamp.md");
+        await File.WriteAllTextAsync(path, "first");
+
+        var first = await _service.ComputeStampAsync(path);
+        await File.WriteAllTextAsync(path, "second");
+        var second = await _service.ComputeStampAsync(path);
+
+        Assert.NotEqual(first.Hash, second.Hash);
+    }
+}
