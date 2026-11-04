@@ -7,4 +7,5 @@ public sealed record LoadedDocument(
     bool HasBom,
     string LineEnding,
     string Hash,
-    DateTimeOffset LastWriteTimeUtc);
+    DateTimeOffset LastWriteTimeUtc,
+    long Length);

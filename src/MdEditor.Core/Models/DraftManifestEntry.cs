@@ -21,4 +21,8 @@ public sealed class DraftManifestEntry
     public string LastKnownHash { get; set; } = string.Empty;
 
     public DateTimeOffset LastWriteTimeUtc { get; set; }
+
+    public long Revision { get; set; }
+
+    public bool PersistText { get; set; }
 }

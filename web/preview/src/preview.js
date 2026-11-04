@@ -14,9 +14,83 @@ const knownThemes = new Set([
   'highcontrast',
 ]);
 const darkThemes = new Set(['dark', 'nord', 'forest', 'highcontrast']);
-const mermaidApi = window.mermaid;
+let mermaidApi = null;
+let mermaidLoadPromise = null;
 let currentTheme = 'light';
+let currentDocumentId = null;
+let currentFontSize = 15;
+let wheelAccumulator = 0;
 let renderGeneration = 0;
+
+const highlightCache = new Map();
+const mathCache = new Map();
+const mermaidCache = new Map();
+const highlightObserver = new IntersectionObserver(
+  (entries) => {
+    for (const entry of entries) {
+      if (!entry.isIntersecting) {
+        continue;
+      }
+
+      const code = entry.target;
+      highlightObserver.unobserve(code);
+      applyHighlight(code);
+    }
+  },
+  { rootMargin: '400px' },
+);
+
+function trimCache(cache, limit) {
+  while (cache.size > limit) {
+    const oldest = cache.keys().next().value;
+    if (oldest === undefined) {
+      return;
+    }
+
+    cache.delete(oldest);
+  }
+}
+
+function captureScrollPercent() {
+  const max = document.documentElement.scrollHeight - window.innerHeight;
+  return max > 0 ? Math.max(0, Math.min(1, window.scrollY / max)) : 0;
+}
+
+function restoreScrollPercent(percent) {
+  const max = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+  window.scrollTo(0, Math.max(0, Math.min(1, percent)) * max);
+}
+
+function ensureMermaid() {
+  if (mermaidApi) {
+    return Promise.resolve(mermaidApi);
+  }
+
+  if (!mermaidLoadPromise) {
+    mermaidLoadPromise = new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = 'mermaid.min.js';
+      script.async = true;
+      script.onload = () => {
+        mermaidApi = window.mermaid ?? null;
+        if (mermaidApi) {
+          resolve(mermaidApi);
+          return;
+        }
+
+        mermaidLoadPromise = null;
+        reject(new Error('Mermaid 載入後無法使用。'));
+      };
+      script.onerror = () => {
+        mermaidLoadPromise = null;
+        reject(new Error('無法載入 Mermaid。'));
+      };
+      document.head.appendChild(script);
+    });
+  }
+
+  return mermaidLoadPromise;
+}
 
 hljs.configure({ ignoreUnescapedHTML: true });
 
@@ -28,6 +102,28 @@ function send(message) {
 
 function normalizeTheme(theme) {
   return knownThemes.has(theme) ? theme : 'light';
+}
+
+function setFontSize(size) {
+  const value = Number(size);
+  if (!Number.isFinite(value)) {
+    return;
+  }
+
+  currentFontSize = Math.min(28, Math.max(10, value));
+  document.documentElement.style.setProperty(
+    '--preview-font-size',
+    `${currentFontSize}px`);
+}
+
+function changeFontSize(delta) {
+  const next = Math.min(28, Math.max(10, currentFontSize + delta));
+  if (next === currentFontSize) {
+    return;
+  }
+
+  setFontSize(next);
+  send({ type: 'fontSize', size: next });
 }
 
 function setTheme(theme) {
@@ -103,18 +199,28 @@ function renderMath(root) {
       continue;
     }
 
-    try {
-      katex.render(source, element, {
-        displayMode: element.tagName === 'DIV',
-        throwOnError: false,
-        strict: 'ignore',
-        trust: false,
-      });
-      element.dataset.mathRendered = 'true';
-      element.classList.add('math-rendered');
-    } catch {
-      // Keep the original LaTeX text when rendering fails.
+    const displayMode = element.tagName === 'DIV';
+    const cacheKey = (displayMode ? 'D' : 'I') + '\u0000' + source;
+    let html = mathCache.get(cacheKey);
+
+    if (!html) {
+      try {
+        html = katex.renderToString(source, {
+          displayMode,
+          throwOnError: false,
+          strict: 'ignore',
+          trust: false,
+        });
+        mathCache.set(cacheKey, html);
+        trimCache(mathCache, 200);
+      } catch {
+        continue;
+      }
     }
+
+    element.innerHTML = html;
+    element.dataset.mathRendered = 'true';
+    element.classList.add('math-rendered');
   }
 }
 
@@ -238,8 +344,42 @@ function createMermaidError(source, error) {
   return box;
 }
 
+function createMermaidFigure(source, svg) {
+  const figure = document.createElement('div');
+  figure.className = 'mermaid-figure';
+  figure.dataset.mermaidSource = source;
+  figure.innerHTML = svg;
+
+  const element = figure.querySelector('svg');
+  if (element) {
+    element.removeAttribute('height');
+    element.style.maxWidth = '100%';
+    element.style.height = 'auto';
+  }
+
+  return figure;
+}
+
 async function renderMermaidBlocks(blocks, generation) {
-  if (!mermaidApi || blocks.length === 0) {
+  if (blocks.length === 0) {
+    return;
+  }
+
+  try {
+    await ensureMermaid();
+  } catch (error) {
+    if (generation === renderGeneration) {
+      for (const { holder, source } of blocks) {
+        if (holder?.isConnected) {
+          holder.replaceWith(createMermaidError(source, error));
+        }
+      }
+    }
+
+    return;
+  }
+
+  if (generation !== renderGeneration) {
     return;
   }
 
@@ -255,6 +395,14 @@ async function renderMermaidBlocks(blocks, generation) {
       continue;
     }
 
+    const cacheKey = currentTheme + '\u0000' + source;
+    const cachedSvg = mermaidCache.get(cacheKey);
+
+    if (cachedSvg) {
+      holder.replaceWith(createMermaidFigure(source, cachedSvg));
+      continue;
+    }
+
     const renderId = `mermaid-${generation}-${index}`;
     try {
       const result = await mermaidApi.render(renderId, source);
@@ -262,18 +410,10 @@ async function renderMermaidBlocks(blocks, generation) {
         continue;
       }
 
-      const figure = document.createElement('div');
-      figure.className = 'mermaid-figure';
-      figure.dataset.mermaidSource = source;
-      figure.innerHTML = result.svg;
+      mermaidCache.set(cacheKey, result.svg);
+      trimCache(mermaidCache, 100);
 
-      const svg = figure.querySelector('svg');
-      if (svg) {
-        svg.removeAttribute('height');
-        svg.style.maxWidth = '100%';
-        svg.style.height = 'auto';
-      }
-
+      const figure = createMermaidFigure(source, result.svg);
       holder.replaceWith(figure);
       if (typeof result.bindFunctions === 'function') {
         result.bindFunctions(figure);
@@ -290,17 +430,40 @@ async function renderMermaidBlocks(blocks, generation) {
   }
 }
 
+function applyHighlight(code) {
+  if (code.dataset.highlighted || isMermaidCode(code)) {
+    return;
+  }
+
+  const language = getCodeLanguage(code);
+  const source = code.textContent ?? '';
+  const cacheKey = language + '\u0000' + source;
+  const cached = highlightCache.get(cacheKey);
+
+  if (cached) {
+    code.innerHTML = cached;
+    code.classList.add('hljs');
+    code.dataset.highlighted = 'yes';
+    return;
+  }
+
+  try {
+    hljs.highlightElement(code);
+    code.dataset.highlighted = 'yes';
+    highlightCache.set(cacheKey, code.innerHTML);
+    trimCache(highlightCache, 200);
+  } catch {
+    // Rendering should still finish when highlighting fails.
+  }
+}
+
 function highlightCodeBlocks() {
   for (const code of content.querySelectorAll('pre code')) {
     if (code.dataset.highlighted || isMermaidCode(code)) {
       continue;
     }
 
-    try {
-      hljs.highlightElement(code);
-    } catch {
-      // Rendering should still finish when highlighting fails.
-    }
+    highlightObserver.observe(code);
   }
 }
 
@@ -363,11 +526,20 @@ function waitForImages() {
 
 async function renderContent(data) {
   const generation = ++renderGeneration;
+  const sameDocument = Boolean(data.documentId) && data.documentId === currentDocumentId;
+  const previousScroll = captureScrollPercent();
+  currentDocumentId = data.documentId ?? null;
+
+  highlightObserver.disconnect();
 
   try {
     content.innerHTML = data.html ?? '';
     setTheme(data.theme);
     renderMath(content);
+
+    if (sameDocument) {
+      restoreScrollPercent(previousScroll);
+    }
 
     const mermaidBlocks = collectMermaidBlocks(content);
 
@@ -378,6 +550,12 @@ async function renderContent(data) {
 
     if (generation === renderGeneration) {
       applyEnhancements();
+
+      if (sameDocument) {
+        restoreScrollPercent(previousScroll);
+      } else {
+        window.scrollTo(0, 0);
+      }
     }
   } finally {
     send({ type: 'rendered', id: data.id });
@@ -391,11 +569,27 @@ async function rerenderMermaid() {
   }
 
   const generation = ++renderGeneration;
+  const previousScroll = captureScrollPercent();
   await renderMermaidBlocks(blocks, generation);
 
   if (generation === renderGeneration) {
     applyEnhancements();
+    restoreScrollPercent(previousScroll);
   }
+}
+
+async function preparePrint() {
+  highlightObserver.disconnect();
+
+  for (const code of content.querySelectorAll('pre code')) {
+    if (isMermaidCode(code)) {
+      continue;
+    }
+
+    applyHighlight(code);
+  }
+
+  await new Promise((resolve) => requestAnimationFrame(() => resolve()));
 }
 
 window.chrome?.webview?.addEventListener('message', async (event) => {
@@ -412,15 +606,44 @@ window.chrome?.webview?.addEventListener('message', async (event) => {
       setTheme(data.theme);
       await rerenderMermaid();
       break;
+    case 'font':
+      setFontSize(data.size);
+      break;
     case 'scroll': {
       const max = document.documentElement.scrollHeight - window.innerHeight;
       window.scrollTo(0, Math.max(0, Math.min(1, data.percent ?? 0)) * max);
       break;
     }
+    case 'preparePrint':
+      await preparePrint();
+      send({ type: 'printReady', id: data.id });
+      break;
     default:
       break;
   }
 });
+
+window.addEventListener('wheel', (event) => {
+  if (!event.ctrlKey || event.deltaY === 0) {
+    return;
+  }
+
+  event.preventDefault();
+
+  if ((wheelAccumulator > 0 && event.deltaY < 0) ||
+      (wheelAccumulator < 0 && event.deltaY > 0)) {
+    wheelAccumulator = 0;
+  }
+
+  wheelAccumulator += event.deltaY;
+  if (Math.abs(wheelAccumulator) < 40) {
+    return;
+  }
+
+  const direction = wheelAccumulator < 0 ? 1 : -1;
+  wheelAccumulator = 0;
+  changeFontSize(direction);
+}, { passive: false });
 
 document.addEventListener('click', (event) => {
   const anchor = event.target.closest('a');

@@ -73,6 +73,19 @@ public partial class App : Application
             await ApplyInitialThemeAsync();
 
             _mainWindow = _host.Services.GetRequiredService<MainWindow>();
+            _mainWindow.Closed += (_, _) =>
+            {
+                try
+                {
+                    _host.Dispose();
+                }
+                catch (Exception)
+                {
+                }
+
+                _mainWindow = null;
+            };
+
             _mainWindow.Activate();
 
             var filePath = LaunchArguments.TryGetFilePath(
@@ -91,6 +104,15 @@ public partial class App : Application
         catch (Exception ex)
         {
             _logger.LogCritical(ex, "應用程式啟動失敗。");
+
+            try
+            {
+                _host.Dispose();
+            }
+            catch (Exception)
+            {
+            }
+
             Exit();
         }
     }

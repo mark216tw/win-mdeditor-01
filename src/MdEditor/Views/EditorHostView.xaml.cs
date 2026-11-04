@@ -14,6 +14,8 @@ public sealed partial class EditorHostView : UserControl, IEditorHost
     private TaskCompletionSource? _readySource;
     private string _theme = "light";
     private bool _wordWrap = true;
+    private double _fontSize = 14;
+    private bool _includeTextInChange = true;
 
     public EditorHostView()
     {
@@ -27,6 +29,8 @@ public sealed partial class EditorHostView : UserControl, IEditorHost
     public event EventHandler<EditorScrollEventArgs>? ScrollChanged;
 
     public event EventHandler<string>? ShortcutRequested;
+
+    public event EventHandler<double>? FontSizeChanged;
 
     public Task InitializeAsync()
     {
@@ -114,6 +118,40 @@ public sealed partial class EditorHostView : UserControl, IEditorHost
         });
     }
 
+    public async Task SetFontSizeAsync(double size)
+    {
+        _fontSize = Math.Clamp(size, 10, 28);
+
+        if (_initializeTask is null)
+        {
+            return;
+        }
+
+        await InitializeAsync();
+        Post(new
+        {
+            type = "font",
+            size = _fontSize,
+        });
+    }
+
+    public async Task SetIncludeTextInChangeAsync(bool enabled)
+    {
+        _includeTextInChange = enabled;
+
+        if (_initializeTask is null)
+        {
+            return;
+        }
+
+        await InitializeAsync();
+        Post(new
+        {
+            type = "changeMode",
+            includeText = _includeTextInChange,
+        });
+    }
+
     public async Task FocusAsync()
     {
         await InitializeAsync();
@@ -127,7 +165,8 @@ public sealed partial class EditorHostView : UserControl, IEditorHost
         {
             _readySource = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             await WaitForLoadedAsync();
-            await WebView.EnsureCoreWebView2Async();
+            var environment = await WebViewEnvironmentProvider.GetAsync();
+            await WebView.EnsureCoreWebView2Async(environment);
 
             var core = WebView.CoreWebView2;
             core.Settings.AreDevToolsEnabled = false;
@@ -152,6 +191,8 @@ public sealed partial class EditorHostView : UserControl, IEditorHost
 
             Post(new { type = "theme", theme = _theme });
             Post(new { type = "wordWrap", enabled = _wordWrap });
+            Post(new { type = "font", size = _fontSize });
+            Post(new { type = "changeMode", includeText = _includeTextInChange });
         }
         catch (Exception ex)
         {
@@ -209,7 +250,7 @@ public sealed partial class EditorHostView : UserControl, IEditorHost
                 case "change":
                     ContentChanged?.Invoke(this, new EditorContentChangedEventArgs(
                         GetString(root, "documentId"),
-                        GetString(root, "text")));
+                        GetNullableString(root, "text")));
                     break;
 
                 case "selection":
@@ -228,6 +269,10 @@ public sealed partial class EditorHostView : UserControl, IEditorHost
 
                 case "shortcut":
                     ShortcutRequested?.Invoke(this, GetString(root, "name"));
+                    break;
+
+                case "fontSize":
+                    FontSizeChanged?.Invoke(this, GetDouble(root, "size"));
                     break;
 
                 case "content":
@@ -275,6 +320,13 @@ public sealed partial class EditorHostView : UserControl, IEditorHost
         return element.TryGetProperty(name, out var property) && property.ValueKind == JsonValueKind.String
             ? property.GetString() ?? string.Empty
             : string.Empty;
+    }
+
+    private static string? GetNullableString(JsonElement element, string name)
+    {
+        return element.TryGetProperty(name, out var property) && property.ValueKind == JsonValueKind.String
+            ? property.GetString()
+            : null;
     }
 
     private static int GetInt32(JsonElement element, string name)

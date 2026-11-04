@@ -11,4 +11,6 @@ public sealed record DraftDocumentSnapshot(
     string LineEnding,
     bool IsDirty,
     string LastKnownHash,
-    DateTimeOffset LastWriteTimeUtc);
+    DateTimeOffset LastWriteTimeUtc,
+    long Revision,
+    bool PersistText);

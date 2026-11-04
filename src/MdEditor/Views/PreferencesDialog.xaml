@@ -26,6 +26,17 @@
             Text="啟用後，在並排檢視中捲動編輯器時，預覽視窗會同步捲動到相同比例。"
             TextWrapping="Wrap" />
 
+        <ToggleSwitch
+            x:Name="WordWrapToggle"
+            Header="自動換行"
+            OffContent="停用"
+            OnContent="啟用" />
+
+        <ComboBox
+            x:Name="FontSizeComboBox"
+            Header="字型大小"
+            HorizontalAlignment="Stretch" />
+
         <Border
             Height="1"
             Background="{ThemeResource DividerStrokeColorDefaultBrush}" />

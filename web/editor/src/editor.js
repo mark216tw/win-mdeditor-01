@@ -1,7 +1,8 @@
 import { basicSetup } from 'codemirror';
 import { EditorView, keymap } from '@codemirror/view';
 import { EditorState, Compartment } from '@codemirror/state';
-import { indentWithTab } from '@codemirror/commands';
+import { indentWithTab, redo, selectAll, undo } from '@codemirror/commands';
+import { openSearchPanel } from '@codemirror/search';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { syntaxHighlighting } from '@codemirror/language';
 import { languages } from '@codemirror/language-data';
@@ -77,6 +78,25 @@ const knownThemes = new Set([
   'highcontrast',
 ]);
 const darkThemes = new Set(['dark', 'nord', 'forest', 'highcontrast']);
+const phrases = {
+  'Find': '尋找',
+  'Replace': '取代',
+  'next': '下一個',
+  'previous': '上一個',
+  'all': '全部選取',
+  'match case': '大小寫相符',
+  'regexp': '規則運算式',
+  'by word': '全字相符',
+  'replace': '取代',
+  'replace all': '全部取代',
+  'close': '關閉',
+  'current match': '目前相符項目',
+  'on line': '位於第',
+  'Go to line': '前往行',
+  'go': '前往',
+  'replaced $ matches': '已取代 $ 處',
+  'replaced match on line $': '已取代第 $ 行的相符內容',
+};
 
 function normalizeTheme(theme) {
   return knownThemes.has(theme) ? theme : 'light';
@@ -88,11 +108,14 @@ function themeExtensions(theme) {
 
 let currentTheme = 'light';
 let currentWordWrap = true;
+let currentFontSize = 14;
+let includeTextInChange = true;
 let currentDocumentId = null;
 let suppressChange = false;
 let changeTimer = null;
 let selectionTimer = null;
 let scrollTimer = null;
+let wheelAccumulator = 0;
 
 function send(message) {
   if (window.chrome?.webview) {
@@ -193,9 +216,42 @@ function buildExtensions() {
           return true;
         },
       },
+      {
+        key: 'Mod-=',
+        preventDefault: true,
+        run: () => {
+          send({ type: 'shortcut', name: 'zoomIn' });
+          return true;
+        },
+      },
+      {
+        key: 'Mod-+',
+        preventDefault: true,
+        run: () => {
+          send({ type: 'shortcut', name: 'zoomIn' });
+          return true;
+        },
+      },
+      {
+        key: 'Mod--',
+        preventDefault: true,
+        run: () => {
+          send({ type: 'shortcut', name: 'zoomOut' });
+          return true;
+        },
+      },
+      {
+        key: 'Mod-0',
+        preventDefault: true,
+        run: () => {
+          send({ type: 'shortcut', name: 'zoomReset' });
+          return true;
+        },
+      },
     ]),
     markdown({ base: markdownLanguage, codeLanguages: languages }),
     EditorState.tabSize.of(4),
+    EditorState.phrases.of(phrases),
     themeCompartment.of(themeExtensions(currentTheme)),
     wrapCompartment.of(currentWordWrap ? EditorView.lineWrapping : []),
     EditorView.updateListener.of((update) => {
@@ -206,11 +262,16 @@ function buildExtensions() {
       if (update.docChanged) {
         clearTimeout(changeTimer);
         changeTimer = setTimeout(() => {
-          send({
+          const message = {
             type: 'change',
             documentId: currentDocumentId,
-            text: view.state.doc.toString(),
-          });
+          };
+
+          if (includeTextInChange) {
+            message.text = view.state.doc.toString();
+          }
+
+          send(message);
         }, 150);
       }
 
@@ -257,6 +318,34 @@ view.scrollDOM.addEventListener('scroll', () => {
   scrollTimer = setTimeout(sendScroll, 100);
 });
 
+view.scrollDOM.addEventListener('wheel', (event) => {
+  if (!event.ctrlKey || event.deltaY === 0) {
+    return;
+  }
+
+  event.preventDefault();
+
+  if ((wheelAccumulator > 0 && event.deltaY < 0) ||
+      (wheelAccumulator < 0 && event.deltaY > 0)) {
+    wheelAccumulator = 0;
+  }
+
+  wheelAccumulator += event.deltaY;
+  if (Math.abs(wheelAccumulator) < 40) {
+    return;
+  }
+
+  const direction = wheelAccumulator < 0 ? 1 : -1;
+  wheelAccumulator = 0;
+  const next = Math.min(28, Math.max(10, currentFontSize + direction));
+  if (next === currentFontSize) {
+    return;
+  }
+
+  setFontSize(next);
+  send({ type: 'fontSize', size: next });
+}, { passive: false });
+
 function setContent(text, documentId) {
   currentDocumentId = documentId;
   suppressChange = true;
@@ -285,6 +374,18 @@ function setWordWrap(enabled) {
     effects: wrapCompartment.reconfigure(
       currentWordWrap ? EditorView.lineWrapping : []),
   });
+}
+
+function setFontSize(size) {
+  const value = Number(size);
+  if (!Number.isFinite(value)) {
+    return;
+  }
+
+  currentFontSize = Math.min(28, Math.max(10, value));
+  document.documentElement.style.setProperty(
+    '--editor-font-size',
+    `${currentFontSize}px`);
 }
 
 function currentSelection() {
@@ -454,6 +555,21 @@ function applyCommand(name) {
     case 'image':
       insertImage();
       break;
+    case 'undo':
+      undo(view);
+      view.focus();
+      break;
+    case 'redo':
+      redo(view);
+      view.focus();
+      break;
+    case 'selectAll':
+      selectAll(view);
+      view.focus();
+      break;
+    case 'find':
+      openSearchPanel(view);
+      break;
     default:
       break;
   }
@@ -485,6 +601,12 @@ window.chrome?.webview?.addEventListener('message', (event) => {
       break;
     case 'wordWrap':
       setWordWrap(data.enabled);
+      break;
+    case 'font':
+      setFontSize(data.size);
+      break;
+    case 'changeMode':
+      includeTextInChange = Boolean(data.includeText);
       break;
     case 'scroll':
       view.scrollDOM.scrollTop =

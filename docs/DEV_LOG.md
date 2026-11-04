@@ -4,6 +4,175 @@
 
 ---
 
+## 2026-11-04 - v0.10.3
+
+### 目標
+關閉視窗時不再詢問是否儲存，直接關閉程式。
+
+### 變更
+- `MainWindow`：`OnAppWindowClosing` 不再呼叫關閉確認，保留最後一次工作階段暫存與視窗設定儲存後直接關閉。
+- `MainViewModel`：移除不再使用的 `ConfirmCloseApplicationAsync`。
+- 文件更新（README、使用指南、系統設計、CHANGELOG、RELEASE_NOTES）。
+- 版號更新為 0.10.3。
+
+### 問題與解法
+- 原有流程會先取消關閉再顯示確認對話框；移除確認後仍保留 `Cancel = true` 等待暫存與視窗設定寫入，完成後再關閉，避免遺失最後編輯內容。
+- 關閉單一文件的未儲存確認不受影響，仍可選擇儲存、不儲存或取消。
+
+### 待辦／已知限制
+- 關閉程式不再提供「儲存後結束」選項；未儲存內容僅保留於工作階段暫存。
+
+## 2026-11-04 - v0.10.2
+
+### 目標
+修正「最近開啟」項目右鍵選單會關閉系統選單的問題，改用不影響外層選單的管理方式。
+
+### 變更
+- `MainWindow.RebuildRecentMenu`：移除每個最近檔案項目的 `ContextFlyout`；最近檔案恢復單擊開啟。
+- 在「最近開啟」子選單底部新增「釘選目前檔案／取消釘選目前檔案」與「從最近開啟移除目前檔案」。
+- `MainViewModel`：新增 `RecentMenuStateChanged` 事件，於切換使用中文件或 `FilePath` 變更時觸發。
+- `MainWindow`：訂閱此事件以更新子選單狀態；移除的檔案仍保持開啟，不會關閉文件。
+- 文件更新（README、使用指南、CHANGELOG、RELEASE_NOTES）。
+- 版號更新為 0.10.2。
+
+### 問題與解法
+- 原因是 WinUI 一次只能顯示一個 Flyout，將 `ContextFlyout` 掛在 `MenuFlyoutItem` 上時，開啟子選單會關閉外層「最近開啟」選單。
+- 改為在子選單內直接提供目前檔案的管理動作，避免巢狀 Flyout。
+- 為避免每次文字變更都重建選單，改用 `RecentMenuStateChanged` 僅在文件切換或路徑變更時重建。
+
+### 待辦／已知限制
+- 目前只能管理「目前開啟」的檔案；若需管理任意最近檔案，需再新增管理清單對話框。
+
+## 2026-11-04 - v0.10.1
+
+### 目標
+讓編輯器與預覽使用同一個字型大小設定，並支援 `Ctrl+滑鼠滾輪` 快速縮放。
+
+### 變更
+- `IPreviewHost`／`PreviewHostView`：新增 `SetFontSizeAsync` 與 `FontSizeChanged` 事件。
+- `preview.css`：`body` 字級改為 `var(--preview-font-size, 15px)`；`@media print` 維持 11pt。
+- `preview.js`：新增 `font` 訊息、`setFontSize`，以及 `Ctrl+滾輪` 累積調整與回報。
+- `editor.js`／`EditorHostView`：新增 `Ctrl+滾輪` 與 `fontSize` 回報事件。
+- `MainViewModel`：兩邊字級同步；字型事件以 500ms debounce 寫入設定；縮放方法改名為 `SetFontSizeAsync`／`AdjustFontSizeAsync`／`ResetFontSizeAsync`。
+- `PreferencesDialog`：單一「字型大小」設定（10–28，預設 14）。
+- 版號更新為 0.10.1。
+
+### 問題與解法
+- 需要避免 Ctrl+滾輪回報後 C# 又回呼造成無限循環 → WebView 收到 `font` 訊息只套用、不回報；C# 端僅負責同步另一邊與儲存。
+- 觸控板會產生大量小幅度 wheel 事件 → 以 40 為門檻累積 `deltaY` 後才調整一級。
+- 連續滾動會密集寫入 `settings.json` → 以 CancellationTokenSource 做 500ms debounce。
+- `PreferencesDialog.FontSize` 會與 `Control.FontSize` 衝突 → 屬性改名為 `SelectedFontSize`。
+
+### 待辦／已知限制
+- 尚未實機驗證不同滑鼠／觸控板的滾輪靈敏度。
+- PDF 固定 11pt，不會跟隨螢幕字級。
+
+## 2026-11-04 - v0.10.0
+
+### 目標
+提升編輯器與多文件操作的日常體驗：讓常用功能可被發現、補齊既有設定欄位的 UI、改善分頁與最近檔案操作，並記住視窗與系統主題狀態。
+
+### 變更
+- `MainWindow.xaml`／`MainWindow.xaml.cs`：新增「編輯」與「檢視」選單；檔案選單新增「儲存全部」。
+- `PreferencesDialog`：新增自動換行與編輯器字型大小（10–28 pt）；`MainViewModel.ApplyPreferencesAsync` 同步套用並保存。
+- `IEditorHost`／`EditorHostView`／`editor.js`：新增 `font` 訊息與 `--editor-font-size` 設定；加入 `Ctrl+=`／`Ctrl+-`／`Ctrl+0` 縮放。
+- `editor.js`：加入繁體中文 `EditorState.phrases`，將搜尋／取代面板中文化；新增復原、重做、全選、開啟搜尋的指令。
+- 頁籤新增右鍵選單與中鍵關閉；`MainViewModel` 新增 `CloseOtherDocumentsAsync`。
+- 最近開啟項目可釘選、取消釘選、移除，並可在檔案總管中顯示。
+- 狀態列新增檔案路徑提示與「在檔案總管中顯示」按鈕。
+- `AppSettings`：新增 `WindowLeft`／`WindowTop`；啟動時還原位置並檢查可見螢幕，關閉時保存。
+- `MainWindow`：以 `OverlappedPresenter.PreferredMinimumWidth`／`PreferredMinimumHeight` 設定最小視窗 800×500。
+- 「跟隨系統」主題改以 `UISettings` 判斷深色並訂閱 `ColorValuesChanged`，執行期即時更新。
+- 版號更新為 0.10.0。
+
+### 問題與解法
+- WinUI 3 的 `Microsoft.UI.Xaml.Application` 沒有 `RequestedThemeChanged` 事件，編譯失敗 → 改用 `Windows.UI.ViewManagement.UISettings.ColorValuesChanged`，並透過 `IUiDispatcher` 回到 UI 執行緒。
+- `ColorValuesChanged` 也可能因強調色變更而觸發 → 解析後比對目前 Web 主題，相同就不重新套用。
+- 視窗位置可能來自已拔除的螢幕 → 以 `DisplayArea.GetFromRect(..., None)` 檢查，找不到就回到主要螢幕並置中。
+- 最近開啟的右鍵選單掛在 `MenuFlyoutItem.ContextFlyout`，需實機確認 WinUI 3 的彈出選單是否正確轉送右鍵事件；若不行，改用子選單呈現釘選／移除。
+- 偏好設定與選單的變更需同步 `WordWrapEnabled`、`EditorFontSize` 等通知，否則 `ToggleMenuFlyoutItem` 的勾選狀態不會更新。
+
+### 待辦／已知限制
+- 尚未實機逐項驗證自訂主題、高對比、跨螢幕視窗位置與分頁右鍵選單。
+- 搜尋面板的翻譯依 `@codemirror/search` 目前使用的 phrase key；套件升級時需重新確認。
+- 自動換行與字型大小目前只影響編輯器，預覽字型仍由預覽樣式決定。
+
+## 2026-11-04 - v0.9.1
+
+### 目標
+調整工具列：檢視按鈕固定在最右側、滑鼠移入回饋更明顯，並以分隔線區分按鈕群組。
+
+### 變更
+- `MainWindow.xaml`：工具列改為三欄 `Grid`，左欄格式按鈕置於可橫向捲動的 `ScrollViewer`，右欄固定顯示檢視模式按鈕。
+- `MainWindow.xaml`：格式按鈕依「行內格式／標題／清單與區塊／插入」分為四組，組間加入分隔線。
+- `MainWindow.xaml`：於工具列 `Grid.Resources` 覆寫 `ButtonBackgroundPointerOver`／`ButtonBackgroundPressed`，以 `TextFillColorPrimary` 加上透明度做為 hover／pressed 底色，效果比預設明顯且會跟隨主題。
+- 版號更新為 0.9.1。
+
+### 問題與解法
+- 淺色主題預設 hover 使用接近白色的 `ControlFillColorSecondary`，幾乎看不見；改用文字主色加透明度，淺色／深色／自訂主題都能維持明顯但一致的回饋。
+- 以 `ThemeResource` 建立筆刷顏色，切換主題時會重新解析，不會像 `StaticResource` 別名那樣停留在舊主題。
+
+### 待辦／已知限制
+- 尚未實機檢視各主題與高對比模式下的實際對比度。
+
+## 2026-11-04 - v0.9.0
+
+### 目標
+進一步降低大檔案輸入、預覽重繪、外部變更偵測與工作階段還原的成本，並改善預覽體驗與資源清理。
+
+### 變更
+- `EditorHostView`、`editor.js`、`MainViewModel`：Edit 模式只傳送輕量 `change` 通知；C# 在停止輸入 250ms、存檔、切換文件或暫存前才以 `getContent` 取得全文。
+- `PreviewHostView`、`preview.js`：`render` 訊息帶 `documentId`，同文件重繪保留捲動比例；新渲染會提前結束舊請求（single-flight）。
+- `preview.js`：程式碼高亮改用 `IntersectionObserver` 只處理可見區塊，並快取 highlight.js、KaTeX 與 Mermaid 結果；`preparePrint` 會在列印前補齊全部高亮。
+- `MainViewModel`：外部變更先用 `LastWriteTimeUtc` 與 `LastKnownLength` 快篩，再計算 SHA-256。
+- `SettingsService`：新增 `IsLoaded`，避免 App 與 ViewModel 重複載入設定。
+- `App`：主視窗關閉與啟動失敗時處置 `IHost`，確保 logger 與 watcher 釋放。
+- `FileLoggerProvider`：啟動時清除超過 14 天的日誌。
+- `FileService`：移除 `FileOptions.WriteThrough`；`FileStamp`／`LoadedDocument` 增加檔案長度。
+- 新增 `WebViewEnvironmentProvider`：兩個 WebView2 共用 `%LocalAppData%\MdEditor\WebView2` 的環境。
+- `SessionDraftService`：manifest 增加 `PersistText`；已存檔且乾淨的文件不寫入全文 draft，還原時仍可從檔案重新載入。
+- `MainViewModel`：工作階段還原以 `Task.WhenAll` 平行載入。
+- `DocxExportService`：OpenXML 完整驗證改為僅 Debug 執行。
+- 版號更新為 0.9.0。
+
+### 問題與解法
+- Edit 模式為避免全文往返而延後同步，若直接切到預覽會拿到舊內容 → 切換檢視、存檔、暫存與匯出前都先 `FlushEditorAsync`。
+- 輕量變更與文字同步可能交錯，舊同步工作不能覆蓋新文件狀態 → `FlushEditorAsync` 只在文件仍是 `ActiveDocument` 時清除 stale 旗標。
+- WebView2 WinRT 投影的環境建立方法是 `CreateWithOptionsAsync`，不是傳統的 `CreateAsync` 三參數多載。
+- 只高亮可見區塊會讓 PDF 匯出漏掉畫面外程式碼 → 列印前送 `preparePrint`，完成全部高亮後才輸出。
+
+### 待辦／已知限制
+- 需實機驗證共用 WebView2 user data folder 後的啟動、快取與多視窗行為。
+- 乾淨文件不保存全文 draft，若檔案在程式關閉後被刪除，將無法從 draft 還原該內容。
+- 尚未在 Windows 10 1809 與 ARM64 實機測試。
+
+## 2026-11-04 - v0.8.0
+
+### 目標
+改善啟動速度、記憶體使用、UI 執行緒阻塞與自動暫存 I/O，不改變使用者操作流程。
+
+### 變更
+- `MainViewModel`：預覽 WebView 改為第一次需要時才初始化；Edit 模式不再排程預覽渲染；PDF 匯出先初始化並等待渲染完成；字數統計改為 350ms debounce 與背景計算；自動暫存序列化移到執行緒集區。
+- `Assets/Preview/preview.html`、`web/preview/src/preview.js`：移除預先載入的 `mermaid.min.js`，改為偵測到 Mermaid 區塊才動態載入，載入失敗時顯示錯誤區塊。
+- `DocumentViewModel`、`DraftDocumentSnapshot`、`DraftManifestEntry`：加入 `Revision`，用於判斷暫存是否需要重寫。
+- `SessionDraftService`：只寫入 revision 有變更或檔案不存在的文件；JSON 改用 `SerializeAsync` 與非同步資料流。
+- `PreviewHostView`：文件資料夾相同時不再重設 `doc.local` 虛擬主機映射。
+- `FileService`：SHA256 改用 `IncrementalHash`，避免存檔時複製整份內容。
+- `FileWatcherService`：改為每個目錄共用一個 `FileSystemWatcher`，仍保留每個檔案 500ms debounce。
+- `FileLoggerProvider`：改用 bounded `Channel` 與背景 writer，避免日誌 I/O 阻塞呼叫端。
+- `MdEditor.csproj`：`RuntimeIdentifier` 依平台條件化；Release 啟用 `PublishReadyToRun`。
+- 版號更新為 0.8.0。
+
+### 問題與解法
+- 預覽改為延遲初始化後，PDF 匯出若在 Edit 模式直接列印會沒有內容 → 匯出流程先切到 Preview、明確初始化並等待 `RenderAsync` 完成再列印。
+- 自動暫存若只比對檔案時間無法可靠判斷內容是否變更 → 以文件 `Revision` 記錄，manifest 一併保存 revision，重啟後仍可避免重寫。
+- 目錄共用 watcher 的 `Renamed` 事件路徑是舊路徑 → 以 `OldFullPath` 對應既有註冊，維持原本外部變更偵測行為。
+
+### 待辦／已知限制
+- 需實機確認 Edit 模式啟動時完全不建立預覽 WebView，以及無 Mermaid 文件不載入圖表引擎。
+- Release ReadyToRun 尚未實際發佈驗證。
+- 尚未在 Windows 10 1809 與 ARM64 實機測試。
+
 ## 2026-11-04 - v0.7.0
 
 ### 目標

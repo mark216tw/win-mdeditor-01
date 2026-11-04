@@ -1,3 +1,3 @@
 namespace VibeCode.MdEditor.Core.Models;
 
-public sealed record FileStamp(string Hash, DateTimeOffset LastWriteTimeUtc);
+public sealed record FileStamp(string Hash, DateTimeOffset LastWriteTimeUtc, long Length);

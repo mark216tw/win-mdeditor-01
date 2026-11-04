@@ -9,6 +9,8 @@ public interface ISettingsService
 
     string SettingsPath { get; }
 
+    bool IsLoaded { get; }
+
     Task LoadAsync(CancellationToken cancellationToken = default);
 
     Task SaveAsync(CancellationToken cancellationToken = default);
@@ -35,6 +37,8 @@ public sealed class SettingsService : ISettingsService
 
     public string SettingsPath { get; }
 
+    public bool IsLoaded { get; private set; }
+
     public async Task LoadAsync(CancellationToken cancellationToken = default)
     {
         Directory.CreateDirectory(_baseDirectory);
@@ -42,6 +46,7 @@ public sealed class SettingsService : ISettingsService
         if (!File.Exists(SettingsPath))
         {
             Settings = new AppSettings();
+            IsLoaded = true;
             return;
         }
 
@@ -57,6 +62,7 @@ public sealed class SettingsService : ISettingsService
         }
 
         Normalize(Settings);
+        IsLoaded = true;
     }
 
     public async Task SaveAsync(CancellationToken cancellationToken = default)
@@ -115,7 +121,7 @@ public sealed class SettingsService : ISettingsService
             settings.WindowState = "Normal";
         }
 
-        settings.EditorFontSize = Math.Clamp(settings.EditorFontSize, 9, 32);
+        settings.EditorFontSize = Math.Clamp(settings.EditorFontSize, 10, 28);
         settings.RecentFilesLimit = Math.Clamp(settings.RecentFilesLimit, 5, 100);
         settings.WindowWidth = Math.Clamp(settings.WindowWidth, 800, 10000);
         settings.WindowHeight = Math.Clamp(settings.WindowHeight, 500, 10000);

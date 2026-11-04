@@ -32,6 +32,35 @@ public sealed class FileWatcherServiceTests
     }
 
     [Fact]
+    public async Task Watch_TwoFilesInSameDirectory_RaisesEventForChangedFile()
+    {
+        using var temp = new TempDirectory();
+        var first = temp.Combine("first.md");
+        var second = temp.Combine("second.md");
+        await File.WriteAllTextAsync(first, "first");
+        await File.WriteAllTextAsync(second, "second");
+
+        using var watcher = new FileWatcherService();
+        var completion = new TaskCompletionSource<FileWatcherEventArgs>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        watcher.FileChanged += (_, args) =>
+        {
+            if (args.Path.Equals(Path.GetFullPath(second), StringComparison.OrdinalIgnoreCase))
+            {
+                completion.TrySetResult(args);
+            }
+        };
+
+        watcher.Watch(first);
+        watcher.Watch(second);
+        await File.WriteAllTextAsync(second, "changed");
+
+        var result = await completion.Task.WaitAsync(TimeSpan.FromSeconds(8));
+        Assert.Equal(Path.GetFullPath(second), result.Path);
+    }
+
+    [Fact]
     public async Task Watch_OnDDrive_RaisesFileChangedEvent()
     {
         var directory = @"D:\TEMP\opencode\watchtest";

@@ -48,7 +48,8 @@ public sealed class FileService : IFileService
             decoded.HasBom,
             lineEnding,
             hash,
-            new DateTimeOffset(lastWrite, TimeSpan.Zero));
+            new DateTimeOffset(lastWrite, TimeSpan.Zero),
+            bytes.Length);
     }
 
     public async Task<FileStamp> SaveAsync(
@@ -87,7 +88,7 @@ public sealed class FileService : IFileService
                 FileAccess.Write,
                 FileShare.None,
                 4096,
-                FileOptions.Asynchronous | FileOptions.WriteThrough))
+                FileOptions.Asynchronous))
             {
                 if (preamble.Length > 0)
                 {
@@ -115,9 +116,19 @@ public sealed class FileService : IFileService
             }
         }
 
-        var hash = Convert.ToHexString(SHA256.HashData([.. preamble, .. content]));
+        using var incrementalHash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        if (preamble.Length > 0)
+        {
+            incrementalHash.AppendData(preamble);
+        }
+
+        incrementalHash.AppendData(content);
+        var hash = Convert.ToHexString(incrementalHash.GetHashAndReset());
         var lastWrite = File.GetLastWriteTimeUtc(fullPath);
-        return new FileStamp(hash, new DateTimeOffset(lastWrite, TimeSpan.Zero));
+        return new FileStamp(
+            hash,
+            new DateTimeOffset(lastWrite, TimeSpan.Zero),
+            preamble.Length + content.Length);
     }
 
     public async Task<FileStamp> ComputeStampAsync(string path, CancellationToken cancellationToken = default)
@@ -127,7 +138,8 @@ public sealed class FileService : IFileService
         var lastWrite = File.GetLastWriteTimeUtc(fullPath);
         return new FileStamp(
             Convert.ToHexString(SHA256.HashData(bytes)),
-            new DateTimeOffset(lastWrite, TimeSpan.Zero));
+            new DateTimeOffset(lastWrite, TimeSpan.Zero),
+            bytes.Length);
     }
 
     public Task<bool> ExistsAsync(string path, CancellationToken cancellationToken = default)

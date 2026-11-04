@@ -1,4 +1,5 @@
 using System.Collections.Specialized;
+using System.Diagnostics;
 using Microsoft.Extensions.Logging;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
@@ -12,6 +13,7 @@ using Windows.ApplicationModel.DataTransfer;
 using Windows.Graphics;
 using Windows.Storage;
 using Windows.System;
+using Windows.UI.ViewManagement;
 
 namespace VibeCode.MdEditor;
 
@@ -21,7 +23,9 @@ public sealed partial class MainWindow : Window
     private readonly IUiDispatcher _dispatcher;
     private readonly IFileAssociationService _fileAssociations;
     private readonly ILogger<MainWindow> _logger;
+    private readonly UISettings _uiSettings = new();
     private SizeInt32 _lastNormalSize;
+    private PointInt32 _lastNormalPosition;
     private bool _syncingTabs;
     private bool _allowClose;
 
@@ -44,17 +48,21 @@ public sealed partial class MainWindow : Window
         ViewModel.PropertyChanged += OnViewModelPropertyChanged;
         ViewModel.ThemeChanged += OnThemeChanged;
         ViewModel.PreferencesRequested += OnPreferencesRequested;
+        ViewModel.RecentMenuStateChanged += OnRecentMenuStateChanged;
         ViewModel.RecentFiles.CollectionChanged += OnRecentFilesChanged;
         ExternalChangeBar.Closed += (_, _) => ViewModel.IsExternalChangeVisible = false;
         ErrorBar.Closed += (_, _) => ViewModel.IsErrorVisible = false;
         AppWindow.Closing += OnAppWindowClosing;
         AppWindow.Changed += OnAppWindowChanged;
+        _uiSettings.ColorValuesChanged += OnSystemColorValuesChanged;
         Closed += (_, _) =>
         {
+            _uiSettings.ColorValuesChanged -= OnSystemColorValuesChanged;
             AppWindow.Changed -= OnAppWindowChanged;
             ViewModel.PropertyChanged -= OnViewModelPropertyChanged;
             ViewModel.ThemeChanged -= OnThemeChanged;
             ViewModel.PreferencesRequested -= OnPreferencesRequested;
+            ViewModel.RecentMenuStateChanged -= OnRecentMenuStateChanged;
             ViewModel.RecentFiles.CollectionChanged -= OnRecentFilesChanged;
             ViewModel.Dispose();
         };
@@ -103,7 +111,14 @@ public sealed partial class MainWindow : Window
     private void ApplyWindowSizeAndCenter()
     {
         var size = ViewModel.GetSavedWindowSize();
-        var displayArea = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Primary);
+        var position = ViewModel.GetSavedWindowPosition();
+
+        var displayArea = position.Left is double savedLeft && position.Top is double savedTop
+            ? DisplayArea.GetFromRect(
+                  new RectInt32((int)savedLeft, (int)savedTop, (int)size.Width, (int)size.Height),
+                  DisplayAreaFallback.None)
+              ?? DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Primary)
+            : DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Primary);
         var workArea = displayArea.WorkArea;
 
         var width = Math.Clamp(
@@ -115,12 +130,37 @@ public sealed partial class MainWindow : Window
             500,
             Math.Max(500, workArea.Height - 80));
 
+        int x;
+        int y;
+
+        if (position.Left is double left && position.Top is double top)
+        {
+            x = Math.Clamp(
+                (int)left,
+                workArea.X,
+                workArea.X + Math.Max(0, workArea.Width - width));
+            y = Math.Clamp(
+                (int)top,
+                workArea.Y,
+                workArea.Y + Math.Max(0, workArea.Height - height));
+        }
+        else
+        {
+            x = workArea.X + (workArea.Width - width) / 2;
+            y = workArea.Y + (workArea.Height - height) / 2;
+        }
+
+        if (AppWindow.Presenter is OverlappedPresenter presenter)
+        {
+            presenter.PreferredMinimumWidth = 800;
+            presenter.PreferredMinimumHeight = 500;
+        }
+
         AppWindow.Resize(new SizeInt32(width, height));
-        AppWindow.Move(new PointInt32(
-            workArea.X + (workArea.Width - width) / 2,
-            workArea.Y + (workArea.Height - height) / 2));
+        AppWindow.Move(new PointInt32(x, y));
 
         _lastNormalSize = new SizeInt32(width, height);
+        _lastNormalPosition = new PointInt32(x, y);
     }
 
     private void RestoreWindowState()
@@ -141,7 +181,7 @@ public sealed partial class MainWindow : Window
 
     private void OnAppWindowChanged(AppWindow sender, AppWindowChangedEventArgs args)
     {
-        if (!args.DidSizeChange)
+        if (!args.DidSizeChange && !args.DidPositionChange)
         {
             return;
         }
@@ -149,7 +189,15 @@ public sealed partial class MainWindow : Window
         if (sender.Presenter is OverlappedPresenter presenter &&
             presenter.State == OverlappedPresenterState.Restored)
         {
-            _lastNormalSize = sender.Size;
+            if (args.DidSizeChange)
+            {
+                _lastNormalSize = sender.Size;
+            }
+
+            if (args.DidPositionChange)
+            {
+                _lastNormalPosition = sender.Position;
+            }
         }
     }
 
@@ -207,12 +255,22 @@ public sealed partial class MainWindow : Window
         RootGrid.RequestedTheme = requestedTheme;
     }
 
+    private void OnSystemColorValuesChanged(UISettings sender, object args)
+    {
+        _dispatcher.TryEnqueue(() => _ = ViewModel.RefreshSystemThemeAsync());
+    }
+
     private void OnPreferencesRequested(object? sender, EventArgs e)
     {
         _dispatcher.TryEnqueue(() => _ = ShowPreferencesAsync());
     }
 
     private void OnRecentFilesChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        RebuildRecentMenu();
+    }
+
+    private void OnRecentMenuStateChanged(object? sender, EventArgs e)
     {
         RebuildRecentMenu();
     }
@@ -248,11 +306,100 @@ public sealed partial class MainWindow : Window
     {
         if (sender is FrameworkElement { Tag: string id })
         {
-            var document = ViewModel.Documents.FirstOrDefault(item => item.Id == id);
+            var document = FindDocument(id);
             if (document is not null)
             {
                 await ViewModel.CloseDocumentAsync(document);
             }
+        }
+    }
+
+    private async void Tab_PointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        if (!e.GetCurrentPoint((UIElement)sender).Properties.IsMiddleButtonPressed ||
+            sender is not FrameworkElement { Tag: string id })
+        {
+            return;
+        }
+
+        e.Handled = true;
+
+        var document = FindDocument(id);
+        if (document is not null)
+        {
+            await ViewModel.CloseDocumentAsync(document);
+        }
+    }
+
+    private async void CloseOtherTabs_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: string id })
+        {
+            var document = FindDocument(id);
+            if (document is not null)
+            {
+                await ViewModel.CloseOtherDocumentsAsync(document);
+            }
+        }
+    }
+
+    private void CopyTabPath_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: string id })
+        {
+            return;
+        }
+
+        var document = FindDocument(id);
+        if (document?.FilePath is null)
+        {
+            ViewModel.StatusText = "此文件尚未儲存，沒有檔案路徑。";
+            return;
+        }
+
+        var package = new DataPackage();
+        package.SetText(document.FilePath);
+        Clipboard.SetContent(package);
+        ViewModel.StatusText = "已複製檔案路徑。";
+    }
+
+    private void RevealTabFile_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: string id })
+        {
+            RevealInExplorer(FindDocument(id)?.FilePath);
+        }
+    }
+
+    private void RevealActiveFile_Click(object sender, RoutedEventArgs e)
+    {
+        RevealInExplorer(ViewModel.ActiveDocument?.FilePath);
+    }
+
+    private DocumentViewModel? FindDocument(string id)
+    {
+        return ViewModel.Documents.FirstOrDefault(item => item.Id == id);
+    }
+
+    private void RevealInExplorer(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+        {
+            ViewModel.StatusText = "找不到檔案。";
+            return;
+        }
+
+        try
+        {
+            Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{path}\"")
+            {
+                UseShellExecute = true,
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "無法在檔案總管顯示檔案：{Path}", path);
+            ViewModel.StatusText = "無法在檔案總管顯示檔案。";
         }
     }
 
@@ -281,6 +428,8 @@ public sealed partial class MainWindow : Window
         var dialog = new PreferencesDialog(
             ViewModel.CurrentTheme,
             ViewModel.SyncScrollingEnabled,
+            ViewModel.WordWrapEnabled,
+            ViewModel.EditorFontSize,
             _fileAssociations.IsRegistered)
         {
             XamlRoot = RootGrid.XamlRoot,
@@ -324,7 +473,9 @@ public sealed partial class MainWindow : Window
 
         await ViewModel.ApplyPreferencesAsync(
             dialog.SelectedTheme,
-            dialog.SyncScrollingEnabled);
+            dialog.SyncScrollingEnabled,
+            dialog.WordWrapEnabled,
+            dialog.SelectedFontSize);
 
         var shouldRegister = dialog.FileAssociationEnabled;
         if (shouldRegister == _fileAssociations.IsRegistered)
@@ -459,6 +610,44 @@ public sealed partial class MainWindow : Window
 
         RecentSubMenu.Items.Add(new MenuFlyoutSeparator());
 
+        var activePath = ViewModel.ActiveDocument?.FilePath;
+        var activeEntry = activePath is null
+            ? null
+            : ViewModel.RecentFiles.FirstOrDefault(entry =>
+                string.Equals(entry.Path, activePath, StringComparison.OrdinalIgnoreCase));
+
+        var pinItem = new MenuFlyoutItem
+        {
+            Text = activeEntry?.IsPinned == true
+                ? "取消釘選目前檔案"
+                : "釘選目前檔案",
+            IsEnabled = activeEntry is not null,
+        };
+        pinItem.Click += async (_, _) =>
+        {
+            if (activeEntry is not null)
+            {
+                await ViewModel.ToggleRecentPinAsync(activeEntry.Path);
+            }
+        };
+
+        var removeItem = new MenuFlyoutItem
+        {
+            Text = "從最近開啟移除目前檔案",
+            IsEnabled = activeEntry is not null,
+        };
+        removeItem.Click += async (_, _) =>
+        {
+            if (activeEntry is not null)
+            {
+                await ViewModel.RemoveRecentAsync(activeEntry.Path);
+            }
+        };
+
+        RecentSubMenu.Items.Add(pinItem);
+        RecentSubMenu.Items.Add(removeItem);
+        RecentSubMenu.Items.Add(new MenuFlyoutSeparator());
+
         var clearItem = new MenuFlyoutItem { Text = "清除最近檔案" };
         clearItem.Click += async (_, _) => await ViewModel.ClearRecentFilesAsync();
         RecentSubMenu.Items.Add(clearItem);
@@ -555,11 +744,6 @@ public sealed partial class MainWindow : Window
 
         try
         {
-            if (!await ViewModel.ConfirmCloseApplicationAsync())
-            {
-                return;
-            }
-
             await ViewModel.PersistSessionAsync();
 
             var windowState = AppWindow.Presenter is OverlappedPresenter
@@ -572,7 +756,9 @@ public sealed partial class MainWindow : Window
             await ViewModel.SaveWindowSettingsAsync(
                 _lastNormalSize.Width,
                 _lastNormalSize.Height,
-                windowState);
+                windowState,
+                _lastNormalPosition.X,
+                _lastNormalPosition.Y);
             _allowClose = true;
             Close();
         }

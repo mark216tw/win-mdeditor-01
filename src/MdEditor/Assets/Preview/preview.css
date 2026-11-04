@@ -141,7 +141,7 @@ body {
 body {
   padding: 24px 32px 64px;
   font-family: "Segoe UI", "Microsoft JhengHei", "Noto Sans TC", system-ui, sans-serif;
-  font-size: 15px;
+  font-size: var(--preview-font-size, 15px);
   line-height: 1.7;
   overflow-wrap: break-word;
 }

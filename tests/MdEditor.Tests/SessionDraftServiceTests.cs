@@ -106,12 +106,103 @@ public sealed class SessionDraftServiceTests
         Assert.Equal("doc3", session.Documents[0].DocumentId);
     }
 
+    [Fact]
+    public async Task Save_DoesNotRewriteUnchangedDraft()
+    {
+        using var temp = new TempDirectory();
+        var service = new SessionDraftService(temp.DirectoryPath);
+        var session = new DraftSession(
+            null,
+            "Split",
+            [CreateSnapshot("doc1", "one", null, "one", isDirty: true)]);
+
+        await service.SaveAsync(session);
+
+        var draftPath = Path.Combine(service.DraftsDirectory, "doc1.json");
+        await File.WriteAllTextAsync(draftPath, "sentinel");
+
+        await service.SaveAsync(session);
+
+        Assert.Equal("sentinel", await File.ReadAllTextAsync(draftPath));
+    }
+
+    [Fact]
+    public async Task Save_RewritesDraftWhenRevisionChanges()
+    {
+        using var temp = new TempDirectory();
+        var service = new SessionDraftService(temp.DirectoryPath);
+
+        await service.SaveAsync(new DraftSession(
+            null,
+            "Split",
+            [CreateSnapshot("doc1", "one", null, "one", isDirty: true)]));
+
+        var draftPath = Path.Combine(service.DraftsDirectory, "doc1.json");
+        await File.WriteAllTextAsync(draftPath, "sentinel");
+
+        await service.SaveAsync(new DraftSession(
+            null,
+            "Split",
+            [CreateSnapshot("doc1", "one", null, "updated", isDirty: true, revision: 2)]));
+
+        var session = await service.LoadAsync();
+
+        Assert.NotNull(session);
+        Assert.Equal("updated", session.Documents[0].Text);
+    }
+
+    [Fact]
+    public async Task Save_CleanDocument_DoesNotPersistText()
+    {
+        using var temp = new TempDirectory();
+        var service = new SessionDraftService(temp.DirectoryPath);
+        var filePath = temp.Combine("clean.md");
+        await File.WriteAllTextAsync(filePath, "clean");
+
+        await service.SaveAsync(new DraftSession(
+            null,
+            "Split",
+            [CreateSnapshot("doc1", "clean.md", filePath, "clean", isDirty: false, persistText: false)]));
+
+        Assert.False(File.Exists(Path.Combine(service.DraftsDirectory, "doc1.json")));
+
+        var session = await service.LoadAsync();
+
+        Assert.NotNull(session);
+        Assert.Single(session.Documents);
+        Assert.Equal(filePath, session.Documents[0].FilePath);
+        Assert.Equal(string.Empty, session.Documents[0].Text);
+    }
+
+    [Fact]
+    public async Task Save_DirtyDocument_PersistsText()
+    {
+        using var temp = new TempDirectory();
+        var service = new SessionDraftService(temp.DirectoryPath);
+        var filePath = temp.Combine("dirty.md");
+        await File.WriteAllTextAsync(filePath, "base");
+
+        await service.SaveAsync(new DraftSession(
+            null,
+            "Split",
+            [CreateSnapshot("doc1", "dirty.md", filePath, "changed", isDirty: true, persistText: true)]));
+
+        Assert.True(File.Exists(Path.Combine(service.DraftsDirectory, "doc1.json")));
+
+        var session = await service.LoadAsync();
+
+        Assert.NotNull(session);
+        Assert.Equal("changed", session.Documents[0].Text);
+    }
+
     private static DraftDocumentSnapshot CreateSnapshot(
         string id,
         string title,
         string? filePath,
         string text,
-        bool isDirty)
+        bool isDirty,
+        long revision = 1,
+        bool persistText = true)
     {
         return new DraftDocumentSnapshot(
             id,
@@ -124,6 +215,8 @@ public sealed class SessionDraftServiceTests
             "LF",
             isDirty,
             "hash",
-            DateTimeOffset.UtcNow);
+            DateTimeOffset.UtcNow,
+            revision,
+            persistText);
     }
 }

@@ -20,6 +20,10 @@ public sealed class AppSettings
 
     public double WindowHeight { get; set; } = 720;
 
+    public double? WindowLeft { get; set; }
+
+    public double? WindowTop { get; set; }
+
     public string WindowState { get; set; } = "Normal";
 
     public List<RecentFileEntry> RecentFiles { get; set; } = [];

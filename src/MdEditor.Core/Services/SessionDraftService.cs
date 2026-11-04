@@ -28,6 +28,7 @@ public sealed class SessionDraftService : ISessionDraftService
 
     private readonly string _manifestPath;
     private readonly SemaphoreSlim _lock = new(1, 1);
+    private readonly Dictionary<string, long> _persistedRevisions = new(StringComparer.OrdinalIgnoreCase);
 
     public SessionDraftService(string baseDirectory)
     {
@@ -79,6 +80,27 @@ public sealed class SessionDraftService : ISessionDraftService
 
                 if (!File.Exists(draftPath))
                 {
+                    if (entry.PersistText || entry.IsDirty || string.IsNullOrWhiteSpace(entry.FilePath))
+                    {
+                        continue;
+                    }
+
+                    documents.Add(new DraftDocumentSnapshot(
+                        entry.DocumentId,
+                        entry.Title,
+                        entry.FilePath,
+                        string.Empty,
+                        entry.EncodingName,
+                        entry.CodePage,
+                        entry.HasBom,
+                        entry.LineEnding,
+                        entry.IsDirty,
+                        entry.LastKnownHash,
+                        entry.LastWriteTimeUtc,
+                        entry.Revision,
+                        PersistText: false));
+
+                    _persistedRevisions[entry.DocumentId] = entry.Revision;
                     continue;
                 }
 
@@ -104,7 +126,11 @@ public sealed class SessionDraftService : ISessionDraftService
                         entry.LineEnding,
                         entry.IsDirty,
                         entry.LastKnownHash,
-                        entry.LastWriteTimeUtc));
+                        entry.LastWriteTimeUtc,
+                        entry.Revision,
+                        entry.PersistText));
+
+                    _persistedRevisions[entry.DocumentId] = entry.Revision;
                 }
                 catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
                 {
@@ -139,14 +165,38 @@ public sealed class SessionDraftService : ISessionDraftService
 
             foreach (var document in session.Documents)
             {
-                await WriteJsonAtomicAsync(
-                    GetDocumentPath(document.DocumentId),
-                    new DraftDocumentFile
+                var draftPath = GetDocumentPath(document.DocumentId);
+
+                if (!document.PersistText)
+                {
+                    if (File.Exists(draftPath))
                     {
-                        DocumentId = document.DocumentId,
-                        Text = document.Text,
-                    },
-                    cancellationToken).ConfigureAwait(false);
+                        File.Delete(draftPath);
+                    }
+
+                    _persistedRevisions.Remove(document.DocumentId);
+                }
+                else
+                {
+                    var needsWrite =
+                        !_persistedRevisions.TryGetValue(document.DocumentId, out var persistedRevision) ||
+                        document.Revision > persistedRevision ||
+                        !File.Exists(draftPath);
+
+                    if (needsWrite)
+                    {
+                        await WriteJsonAtomicAsync(
+                            draftPath,
+                            new DraftDocumentFile
+                            {
+                                DocumentId = document.DocumentId,
+                                Text = document.Text,
+                            },
+                            cancellationToken).ConfigureAwait(false);
+
+                        _persistedRevisions[document.DocumentId] = document.Revision;
+                    }
+                }
 
                 entries.Add(new DraftManifestEntry
                 {
@@ -160,7 +210,21 @@ public sealed class SessionDraftService : ISessionDraftService
                     LineEnding = document.LineEnding,
                     LastKnownHash = document.LastKnownHash,
                     LastWriteTimeUtc = document.LastWriteTimeUtc,
+                    Revision = document.Revision,
+                    PersistText = document.PersistText,
                 });
+            }
+
+            var activeIds = new HashSet<string>(
+                entries.Select(entry => entry.DocumentId),
+                StringComparer.OrdinalIgnoreCase);
+
+            foreach (var documentId in _persistedRevisions.Keys.ToList())
+            {
+                if (!activeIds.Contains(documentId))
+                {
+                    _persistedRevisions.Remove(documentId);
+                }
             }
 
             await WriteJsonAtomicAsync(
@@ -193,6 +257,8 @@ public sealed class SessionDraftService : ISessionDraftService
             {
                 File.Delete(path);
             }
+
+            _persistedRevisions.Remove(documentId);
         }
         finally
         {
@@ -236,12 +302,23 @@ public sealed class SessionDraftService : ISessionDraftService
         T value,
         CancellationToken cancellationToken)
     {
-        var json = JsonSerializer.Serialize(value, JsonOptions);
         var tempPath = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
 
         try
         {
-            await File.WriteAllTextAsync(tempPath, json, cancellationToken).ConfigureAwait(false);
+            await using (var stream = new FileStream(
+                tempPath,
+                FileMode.CreateNew,
+                FileAccess.Write,
+                FileShare.None,
+                4096,
+                FileOptions.Asynchronous))
+            {
+                await JsonSerializer
+                    .SerializeAsync(stream, value, JsonOptions, cancellationToken)
+                    .ConfigureAwait(false);
+                await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
+            }
 
             if (File.Exists(path))
             {

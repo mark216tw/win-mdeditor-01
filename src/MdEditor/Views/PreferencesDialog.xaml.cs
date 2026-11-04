@@ -6,7 +6,12 @@ namespace VibeCode.MdEditor.Views;
 
 public sealed partial class PreferencesDialog : ContentDialog
 {
-    public PreferencesDialog(string theme, bool syncScrolling, bool fileAssociationRegistered)
+    public PreferencesDialog(
+        string theme,
+        bool syncScrolling,
+        bool wordWrap,
+        double fontSize,
+        bool fileAssociationRegistered)
     {
         InitializeComponent();
 
@@ -32,6 +37,19 @@ public sealed partial class PreferencesDialog : ContentDialog
 
         ThemeComboBox.SelectedIndex = selectedIndex;
         SyncScrollingToggle.IsOn = syncScrolling;
+        WordWrapToggle.IsOn = wordWrap;
+
+        var roundedSize = (int)Math.Clamp(Math.Round(fontSize), 10, 28);
+        for (var size = 10; size <= 28; size++)
+        {
+            FontSizeComboBox.Items.Add(new ComboBoxItem
+            {
+                Content = $"{size} pt",
+                Tag = size,
+            });
+        }
+
+        FontSizeComboBox.SelectedIndex = roundedSize - 10;
         FileAssociationToggle.IsOn = fileAssociationRegistered;
     }
 
@@ -41,6 +59,11 @@ public sealed partial class PreferencesDialog : ContentDialog
         (ThemeComboBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "System";
 
     public bool SyncScrollingEnabled => SyncScrollingToggle.IsOn;
+
+    public bool WordWrapEnabled => WordWrapToggle.IsOn;
+
+    public double SelectedFontSize =>
+        (FontSizeComboBox.SelectedItem as ComboBoxItem)?.Tag is int size ? size : 14;
 
     public bool FileAssociationEnabled => FileAssociationToggle.IsOn;
 

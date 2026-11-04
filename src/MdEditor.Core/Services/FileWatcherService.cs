@@ -27,7 +27,7 @@ public interface IFileWatcherService : IDisposable
 public sealed class FileWatcherService : IFileWatcherService
 {
     private readonly Lock _sync = new();
-    private readonly Dictionary<string, Registration> _registrations = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, DirectoryWatch> _directories = new(StringComparer.OrdinalIgnoreCase);
     private bool _disposed;
 
     public event EventHandler<FileWatcherEventArgs>? FileChanged;
@@ -49,53 +49,80 @@ public sealed class FileWatcherService : IFileWatcherService
 
         lock (_sync)
         {
-            if (_registrations.ContainsKey(fullPath))
+            if (_disposed)
             {
                 return;
             }
 
-            var watcher = new FileSystemWatcher(directory, fileName)
+            if (!_directories.TryGetValue(directory, out var watch))
             {
-                NotifyFilter = NotifyFilters.LastWrite |
-                               NotifyFilters.Size |
-                               NotifyFilters.FileName |
-                               NotifyFilters.CreationTime,
-                IncludeSubdirectories = false,
-                InternalBufferSize = 64 * 1024,
-            };
+                watch = new DirectoryWatch(directory);
+                watch.Watcher.Changed += (_, args) => OnChanged(watch, args.FullPath, FileChangeKind.Changed);
+                watch.Watcher.Created += (_, args) => OnChanged(watch, args.FullPath, FileChangeKind.Created);
+                watch.Watcher.Deleted += (_, args) => OnChanged(watch, args.FullPath, FileChangeKind.Deleted);
+                watch.Watcher.Renamed += (_, args) => OnRenamed(watch, args);
+                watch.Watcher.Error += (_, _) => OnWatcherError(watch);
+                _directories[directory] = watch;
 
-            var registration = new Registration(fullPath, watcher);
-            watcher.Changed += (_, _) => Queue(registration, FileChangeKind.Changed);
-            watcher.Created += (_, _) => Queue(registration, FileChangeKind.Created);
-            watcher.Deleted += (_, _) => Queue(registration, FileChangeKind.Deleted);
-            watcher.Renamed += (_, _) => Queue(registration, FileChangeKind.Renamed);
-            watcher.Error += (_, _) => Queue(registration, FileChangeKind.Changed);
+                watch.Registrations[fullPath] = CreateRegistration(fullPath);
+                watch.Watcher.EnableRaisingEvents = true;
+                return;
+            }
 
-            registration.Timer = new Timer(
-                OnTimer,
-                registration,
-                Timeout.Infinite,
-                Timeout.Infinite);
+            if (watch.Registrations.ContainsKey(fullPath))
+            {
+                return;
+            }
 
-            watcher.EnableRaisingEvents = true;
-            _registrations[fullPath] = registration;
+            watch.Registrations[fullPath] = CreateRegistration(fullPath);
         }
+    }
+
+    private Registration CreateRegistration(string path)
+    {
+        var registration = new Registration(path);
+        registration.Timer = new Timer(OnTimer, registration, Timeout.Infinite, Timeout.Infinite);
+        return registration;
     }
 
     public void Unwatch(string path)
     {
         var fullPath = Path.GetFullPath(path);
+        var directory = Path.GetDirectoryName(fullPath);
+        if (string.IsNullOrEmpty(directory))
+        {
+            return;
+        }
+
         Registration? registration;
+        DirectoryWatch? watch;
+        var removeDirectory = false;
 
         lock (_sync)
         {
-            if (!_registrations.Remove(fullPath, out registration))
+            if (!_directories.TryGetValue(directory, out watch))
             {
                 return;
+            }
+
+            if (!watch.Registrations.Remove(fullPath, out registration))
+            {
+                return;
+            }
+
+            if (watch.Registrations.Count == 0)
+            {
+                _directories.Remove(directory);
+                removeDirectory = true;
             }
         }
 
         DisposeRegistration(registration);
+
+        if (removeDirectory)
+        {
+            watch.Dispose();
+        }
     }
 
     public void Dispose()
@@ -106,20 +133,98 @@ public sealed class FileWatcherService : IFileWatcherService
         }
 
         _disposed = true;
+        DirectoryWatch[] watches;
+
+        lock (_sync)
+        {
+            watches = [.. _directories.Values];
+            _directories.Clear();
+        }
+
+        foreach (var watch in watches)
+        {
+            watch.Dispose();
+        }
+
+        GC.SuppressFinalize(this);
+    }
+
+    private void OnChanged(DirectoryWatch watch, string fullPath, FileChangeKind kind)
+    {
+        Registration? registration;
+
+        try
+        {
+            fullPath = Path.GetFullPath(fullPath);
+        }
+        catch (Exception)
+        {
+            return;
+        }
+
+        lock (_sync)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            watch.Registrations.TryGetValue(fullPath, out registration);
+        }
+
+        if (registration is not null)
+        {
+            Queue(registration, kind);
+        }
+    }
+
+    private void OnRenamed(DirectoryWatch watch, RenamedEventArgs args)
+    {
+        Registration? registration;
+
+        try
+        {
+            var oldPath = Path.GetFullPath(args.OldFullPath);
+
+            lock (_sync)
+            {
+                if (_disposed)
+                {
+                    return;
+                }
+
+                watch.Registrations.TryGetValue(oldPath, out registration);
+            }
+        }
+        catch (Exception)
+        {
+            return;
+        }
+
+        if (registration is not null)
+        {
+            Queue(registration, FileChangeKind.Renamed);
+        }
+    }
+
+    private void OnWatcherError(DirectoryWatch watch)
+    {
         Registration[] registrations;
 
         lock (_sync)
         {
-            registrations = [.. _registrations.Values];
-            _registrations.Clear();
+            if (_disposed)
+            {
+                return;
+            }
+
+            registrations = [.. watch.Registrations.Values];
         }
 
         foreach (var registration in registrations)
         {
-            DisposeRegistration(registration);
+            Queue(registration, FileChangeKind.Changed);
         }
-
-        GC.SuppressFinalize(this);
     }
 
     private void Queue(Registration registration, FileChangeKind kind)
@@ -146,9 +251,16 @@ public sealed class FileWatcherService : IFileWatcherService
         }
 
         FileChangeKind kind;
+        bool disabled;
         lock (registration.Sync)
         {
             kind = registration.PendingKind;
+            disabled = registration.Disabled;
+        }
+
+        if (disabled)
+        {
+            return;
         }
 
         try
@@ -162,13 +274,9 @@ public sealed class FileWatcherService : IFileWatcherService
 
     private static void DisposeRegistration(Registration registration)
     {
-        try
+        lock (registration.Sync)
         {
-            registration.Watcher.EnableRaisingEvents = false;
-            registration.Watcher.Dispose();
-        }
-        catch (Exception)
-        {
+            registration.Disabled = true;
         }
 
         try
@@ -180,16 +288,44 @@ public sealed class FileWatcherService : IFileWatcherService
         }
     }
 
-    private sealed class Registration(string path, FileSystemWatcher watcher)
+    private sealed class DirectoryWatch(string directory) : IDisposable
+    {
+        public FileSystemWatcher Watcher { get; } = new(directory)
+        {
+            NotifyFilter = NotifyFilters.LastWrite |
+                           NotifyFilters.Size |
+                           NotifyFilters.FileName |
+                           NotifyFilters.CreationTime,
+            IncludeSubdirectories = false,
+            InternalBufferSize = 64 * 1024,
+        };
+
+        public Dictionary<string, Registration> Registrations { get; } =
+            new(StringComparer.OrdinalIgnoreCase);
+
+        public void Dispose()
+        {
+            try
+            {
+                Watcher.EnableRaisingEvents = false;
+                Watcher.Dispose();
+            }
+            catch (Exception)
+            {
+            }
+        }
+    }
+
+    private sealed class Registration(string path)
     {
         public string Path { get; } = path;
-
-        public FileSystemWatcher Watcher { get; } = watcher;
 
         public Lock Sync { get; } = new();
 
         public FileChangeKind PendingKind { get; set; } = FileChangeKind.Changed;
 
         public Timer? Timer { get; set; }
+
+        public bool Disabled { get; set; }
     }
 }

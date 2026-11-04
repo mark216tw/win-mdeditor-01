@@ -99,11 +99,13 @@ public sealed class DocxExportService : IDocxExportService
 
     private static void Validate(WordprocessingDocument document)
     {
+#if DEBUG
         var errors = new OpenXmlValidator().Validate(document).Take(1).ToArray();
         if (errors.Length > 0)
         {
             throw new InvalidOperationException("Word 文件驗證失敗：" + errors[0].Description);
         }
+#endif
     }
 
     private static void AddStyles(MainDocumentPart mainPart)

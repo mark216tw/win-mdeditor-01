@@ -9,10 +9,12 @@ namespace VibeCode.MdEditor.Views;
 
 public sealed partial class PreviewHostView : UserControl, IPreviewHost
 {
-    private readonly Dictionary<string, TaskCompletionSource> _renderRequests = new();
+    private (string Id, TaskCompletionSource Completion)? _pendingRender;
+    private TaskCompletionSource? _pendingPrint;
     private Task? _initializeTask;
     private TaskCompletionSource? _readySource;
     private string _theme = "light";
+    private double _fontSize = 15;
     private string? _documentFolder;
 
     public PreviewHostView()
@@ -22,6 +24,8 @@ public sealed partial class PreviewHostView : UserControl, IPreviewHost
 
     public event EventHandler<string>? LinkRequested;
 
+    public event EventHandler<double>? FontSizeChanged;
+
     public Task InitializeAsync()
     {
         return _initializeTask ??= InitializeCoreAsync();
@@ -29,7 +33,13 @@ public sealed partial class PreviewHostView : UserControl, IPreviewHost
 
     public Task SetDocumentFolderAsync(string? folder)
     {
-        _documentFolder = string.IsNullOrWhiteSpace(folder) ? null : folder;
+        var normalized = string.IsNullOrWhiteSpace(folder) ? null : folder;
+        if (string.Equals(_documentFolder, normalized, StringComparison.OrdinalIgnoreCase))
+        {
+            return Task.CompletedTask;
+        }
+
+        _documentFolder = normalized;
 
         if (_initializeTask is not null)
         {
@@ -39,13 +49,15 @@ public sealed partial class PreviewHostView : UserControl, IPreviewHost
         return Task.CompletedTask;
     }
 
-    public async Task RenderAsync(string html, string theme, string renderId)
+    public async Task RenderAsync(string html, string theme, string renderId, string documentId)
     {
         await InitializeAsync();
 
         _theme = AppThemeCatalog.FromWebTheme(theme).WebTheme;
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        _renderRequests[renderId] = completion;
+        var previous = _pendingRender;
+        _pendingRender = (renderId, completion);
+        previous?.Completion.TrySetResult();
 
         Post(new
         {
@@ -53,6 +65,7 @@ public sealed partial class PreviewHostView : UserControl, IPreviewHost
             html,
             theme = _theme,
             id = renderId,
+            documentId,
         });
 
         try
@@ -61,7 +74,10 @@ public sealed partial class PreviewHostView : UserControl, IPreviewHost
         }
         finally
         {
-            _renderRequests.Remove(renderId);
+            if (_pendingRender?.Completion == completion)
+            {
+                _pendingRender = null;
+            }
         }
     }
 
@@ -79,6 +95,23 @@ public sealed partial class PreviewHostView : UserControl, IPreviewHost
         {
             type = "theme",
             theme = _theme,
+        });
+    }
+
+    public async Task SetFontSizeAsync(double size)
+    {
+        _fontSize = Math.Clamp(size, 10, 28);
+
+        if (_initializeTask is null)
+        {
+            return;
+        }
+
+        await InitializeAsync();
+        Post(new
+        {
+            type = "font",
+            size = _fontSize,
         });
     }
 
@@ -100,6 +133,7 @@ public sealed partial class PreviewHostView : UserControl, IPreviewHost
     public async Task PrintToPdfAsync(string outputPath)
     {
         await InitializeAsync();
+        await PrepareForPrintAsync();
 
         var core = WebView.CoreWebView2;
         var settings = core.Environment.CreatePrintSettings();
@@ -120,13 +154,38 @@ public sealed partial class PreviewHostView : UserControl, IPreviewHost
         }
     }
 
+    private async Task PrepareForPrintAsync()
+    {
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _pendingPrint = completion;
+
+        Post(new
+        {
+            type = "preparePrint",
+            id = Guid.NewGuid().ToString("N"),
+        });
+
+        try
+        {
+            await completion.Task.WaitAsync(TimeSpan.FromSeconds(30));
+        }
+        finally
+        {
+            if (_pendingPrint == completion)
+            {
+                _pendingPrint = null;
+            }
+        }
+    }
+
     private async Task InitializeCoreAsync()
     {
         try
         {
             _readySource = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             await WaitForLoadedAsync();
-            await WebView.EnsureCoreWebView2Async();
+            var environment = await WebViewEnvironmentProvider.GetAsync();
+            await WebView.EnsureCoreWebView2Async(environment);
 
             var core = WebView.CoreWebView2;
             core.Settings.AreDevToolsEnabled = false;
@@ -149,6 +208,7 @@ public sealed partial class PreviewHostView : UserControl, IPreviewHost
             WebView.Source = new Uri("https://app.local/Preview/preview.html");
             await _readySource.Task.WaitAsync(TimeSpan.FromSeconds(15));
             Post(new { type = "theme", theme = _theme });
+            Post(new { type = "font", size = _fontSize });
         }
         catch (Exception ex)
         {
@@ -237,16 +297,26 @@ public sealed partial class PreviewHostView : UserControl, IPreviewHost
                 case "rendered":
                     {
                         var id = GetString(root, "id");
-                        if (_renderRequests.TryGetValue(id, out var completion))
+                        var pending = _pendingRender;
+                        if (pending is not null &&
+                            string.Equals(pending.Value.Id, id, StringComparison.Ordinal))
                         {
-                            completion.TrySetResult();
+                            pending.Value.Completion.TrySetResult();
                         }
 
                         break;
                     }
 
+                case "printReady":
+                    _pendingPrint?.TrySetResult();
+                    break;
+
                 case "link":
                     LinkRequested?.Invoke(this, GetString(root, "href"));
+                    break;
+
+                case "fontSize":
+                    FontSizeChanged?.Invoke(this, GetDouble(root, "size"));
                     break;
             }
         }
@@ -283,5 +353,12 @@ public sealed partial class PreviewHostView : UserControl, IPreviewHost
         return element.TryGetProperty(name, out var property) && property.ValueKind == JsonValueKind.String
             ? property.GetString() ?? string.Empty
             : string.Empty;
+    }
+
+    private static double GetDouble(JsonElement element, string name)
+    {
+        return element.TryGetProperty(name, out var property) && property.TryGetDouble(out var value)
+            ? value
+            : 0;
     }
 }

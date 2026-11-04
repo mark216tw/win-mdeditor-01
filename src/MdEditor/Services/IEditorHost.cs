@@ -1,6 +1,6 @@
 namespace VibeCode.MdEditor.Services;
 
-public sealed record EditorContentChangedEventArgs(string DocumentId, string Text);
+public sealed record EditorContentChangedEventArgs(string DocumentId, string? Text);
 
 public sealed record EditorSelectionChangedEventArgs(string DocumentId, int Line, int Column, int SelectionLength);
 
@@ -16,6 +16,8 @@ public interface IEditorHost
 
     event EventHandler<string>? ShortcutRequested;
 
+    event EventHandler<double>? FontSizeChanged;
+
     Task InitializeAsync();
 
     Task SetContentAsync(string text, string documentId);
@@ -27,6 +29,10 @@ public interface IEditorHost
     Task SetThemeAsync(string theme);
 
     Task SetWordWrapAsync(bool enabled);
+
+    Task SetFontSizeAsync(double size);
+
+    Task SetIncludeTextInChangeAsync(bool enabled);
 
     Task FocusAsync();
 }

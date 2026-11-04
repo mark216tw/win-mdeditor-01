@@ -59,6 +59,9 @@ public sealed partial class DocumentViewModel : ObservableObject
     public partial DateTimeOffset LastWriteTimeUtc { get; set; }
 
     [ObservableProperty]
+    public partial long LastKnownLength { get; set; }
+
+    [ObservableProperty]
     public partial bool IsExternalChange { get; set; }
 
     [ObservableProperty]
@@ -68,6 +71,8 @@ public sealed partial class DocumentViewModel : ObservableObject
     public partial bool IsMissing { get; set; }
 
     public string Id { get; init; } = Guid.NewGuid().ToString("N");
+
+    public long Revision { get; set; } = 1;
 
     public string FileDirectory => FilePath is null
         ? string.Empty
@@ -90,6 +95,7 @@ public sealed partial class DocumentViewModel : ObservableObject
         LineEnding = document.LineEnding;
         LastKnownHash = document.Hash;
         LastWriteTimeUtc = document.LastWriteTimeUtc;
+        LastKnownLength = document.Length;
         IsExternalChange = false;
         ExternalChangeMessage = string.Empty;
         IsMissing = false;
