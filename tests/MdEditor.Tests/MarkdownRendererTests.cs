@@ -59,4 +59,28 @@ public sealed class MarkdownRendererTests
 
         Assert.DoesNotContain("javascript:", html, StringComparison.OrdinalIgnoreCase);
     }
+
+    [Fact]
+    public void Render_WrapsMathForKatexTypesetting()
+    {
+        var html = _renderer.Render(
+            "行內 $E = mc^2$\n\n$$\n\\int_0^1 x^2 dx\n$$\n",
+            null);
+
+        Assert.Contains("<span class=\"math\">\\(E = mc^2\\)</span>", html);
+        Assert.Contains("<div class=\"math\">", html);
+        Assert.Contains("\\int_0^1 x^2 dx", html);
+    }
+
+    [Fact]
+    public void Render_MarksMermaidFenceForPreviewRendering()
+    {
+        var html = _renderer.Render(
+            "```mermaid\nflowchart TD\n  A[開始] --> B[結束]\n```\n",
+            null);
+
+        Assert.Contains("<pre class=\"mermaid\">", html);
+        Assert.Contains("flowchart TD", html);
+        Assert.Contains("A[開始] --> B[結束]", html);
+    }
 }

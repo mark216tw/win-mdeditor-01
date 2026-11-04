@@ -9,7 +9,7 @@ Windows 10／11 的 Markdown 桌面編輯器。介面使用 WinUI 3，編輯器�
 - 支援系統：Windows 10 1809（build 17763）以上、Windows 11
 - 授權：MIT License
 
-## 功能特色（v0.6.0）
+## 功能特色（v0.7.0）
 
 - 三層介面：系統選單、工具列、文件頁籤。
 - 系統選單：檔案（F）與設定（S），提供雙層子選單與快捷鍵。
@@ -21,6 +21,7 @@ Windows 10／11 的 Markdown 桌面編輯器。介面使用 WinUI 3，編輯器�
 - 最近開啟檔案清單（MRU），可釘選與清除。
 - 外部檔案變更偵測：顯示提示並可重新載入；重新載入前若有未儲存變更會先確認。
 - 匯出 PDF（A4）與 Word（.docx）。
+- 預覽支援 KaTeX 數學公式（`$...$`、`$$...$$`）與 Mermaid 流程圖／時序圖／類別圖等圖表，完全離線渲染。
 - 九種主題：跟隨系統、淺色、深色、護眼、晨光、薰衣草、北歐藍、森林綠、高對比。
 - 編輯與預覽同步捲動（可停用）。
 - 檔案關聯：可在偏好設定登錄／解除 `.md`、`.markdown`，並開啟 Windows「預設應用程式」設定。
@@ -89,7 +90,7 @@ src/MdEditor/             WinUI 3 應用程式（Views、ViewModels、Services�
 src/MdEditor.Core/        平台無關核心（Markdown、檔案、監看、設定、工作階段、Word 匯出）
 tests/MdEditor.Tests/     xUnit 單元測試
 web/editor/               CodeMirror 6 編輯器原始碼與打包設定
-web/preview/              預覽頁面（Markdig HTML + highlight.js）
+web/preview/              預覽頁面（Markdig HTML + highlight.js + KaTeX + Mermaid）
 docs/                     使用、架構、技術、設計與建置文件
 scripts/                  發佈輔助腳本
 ```
@@ -110,7 +111,7 @@ dotnet format MdEditor.sln --verify-no-changes
 發佈（非 Self-Contained，x64 與 ARM64）：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\publish-release.ps1 -Version 0.6.0
+powershell -ExecutionPolicy Bypass -File scripts\publish-release.ps1 -Version 0.7.0
 ```
 
 詳細流程請見 [建置與發佈](docs/建置與發佈.md)。
@@ -136,6 +137,9 @@ powershell -ExecutionPolicy Bypass -File scripts\publish-release.ps1 -Version 0.
 - 預覽基於安全考量預設封鎖遠端圖片與原始 HTML。
 - 預覽會移除內容中的 `title` 屬性，因此不顯示連結／縮寫的原生說明提示。
 - Word 匯出只嵌入本機相對路徑圖片，遠端圖片會略過。
+- Word 匯出不會排版數學公式或流程圖；數學以 LaTeX 原文、流程圖以程式碼區塊呈現。
+- 預覽中的 Mermaid 圖表與 KaTeX 公式完全離線渲染；Mermaid 套件較大，首次載入預覽會比純文字預覽稍慢。
+- `$` 同時是數學分隔符，貨幣寫法（例如 `$5`）可能被誤判；可用 `\$` 跳脫。
 - 「跟隨系統」主題於啟動時解析；執行期間切換系統主題不會自動跟隨。
 - 尚未在 Windows 10 1809 與 ARM64 實機完整驗證。
 

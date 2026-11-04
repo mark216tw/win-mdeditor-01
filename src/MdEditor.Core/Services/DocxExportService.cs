@@ -5,6 +5,7 @@ using DocumentFormat.OpenXml.Validation;
 using DocumentFormat.OpenXml.Wordprocessing;
 using Markdig;
 using Markdig.Extensions.Footnotes;
+using Markdig.Extensions.Mathematics;
 using Markdig.Extensions.TaskLists;
 using Markdig.Syntax;
 using Markdig.Syntax.Inlines;
@@ -288,6 +289,10 @@ public sealed class DocxExportService : IDocxExportService
                     AppendQuote(container, quote);
                     break;
 
+                case MathBlock mathBlock:
+                    AppendMathBlock(container, mathBlock);
+                    break;
+
                 case FencedCodeBlock fenced:
                     AppendCodeBlock(container, fenced);
                     break;
@@ -532,6 +537,14 @@ public sealed class DocxExportService : IDocxExportService
             container.Append(paragraph);
         }
 
+        private void AppendMathBlock(OpenXmlElement container, MathBlock block)
+        {
+            var paragraph = CreateParagraph("CodeBlock");
+            var content = block.Lines.ToString().Replace("\r\n", "\n").Replace('\r', '\n');
+            paragraph.Append(CreateRun($"$$\n{content}\n$$", default));
+            container.Append(paragraph);
+        }
+
         private void AppendThematicBreak(OpenXmlElement container)
         {
             var paragraph = new Paragraph(new ParagraphProperties(
@@ -581,6 +594,10 @@ public sealed class DocxExportService : IDocxExportService
 
                     case CodeInline code:
                         container.Append(CreateRun(code.Content, format with { Code = true }));
+                        break;
+
+                    case MathInline math:
+                        container.Append(CreateRun($"${math.Content}$", format with { Code = true }));
                         break;
 
                     case EmphasisInline emphasis:

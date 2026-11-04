@@ -1,13 +1,13 @@
-# Markdown 編輯器 v0.6.0
+# Markdown 編輯器 v0.7.0
 
-Windows 10／11 的 Markdown 桌面編輯器，支援 x64 與 ARM64。本版本為首個公開 Release，提供完整專案文件與 MIT License。
+Windows 10／11 的 Markdown 桌面編輯器，支援 x64 與 ARM64。本版本新增數學公式與 Mermaid 圖表預覽。
 
 ## 下載
 
 | 檔案 | 架構 |
 | --- | --- |
-| `MdEditor-0.6.0-win-x64.zip` | x64（Intel／AMD） |
-| `MdEditor-0.6.0-win-arm64.zip` | ARM64（Windows on Arm） |
+| `MdEditor-0.7.0-win-x64.zip` | x64（Intel／AMD） |
+| `MdEditor-0.7.0-win-arm64.zip` | ARM64（Windows on Arm） |
 
 本版本只提供**非 Self-Contained**（framework-dependent）套件，執行前請先安裝與 App 相同架構的：
 
@@ -23,6 +23,7 @@ Windows 10／11 的 Markdown 桌面編輯器，支援 x64 與 ARM64。本版本�
 - 多文件分頁、自動暫存與工作階段還原：關閉後再開啟會還原文件、未儲存內容、使用中分頁與檢視模式。
 - 九種主題：跟隨系統、淺色、深色、護眼、晨光、薰衣草、北歐藍、森林綠、高對比。
 - 匯出 PDF（A4）與 Word（`.docx`），Word 匯出不需要安裝 Microsoft Word。
+- 預覽支援 KaTeX 數學公式（`$...$`、`$$...$$`）與 Mermaid 流程圖、時序圖、類別圖、狀態圖、甘特圖等，完全離線渲染。
 - 外部檔案變更偵測與重新載入。
 - 最近開啟清單（MRU），可釘選與清除。
 - 檔案關聯：在偏好設定登錄 `.md`、`.markdown`，再於 Windows「預設應用程式」設定中選擇本 App。
@@ -52,6 +53,9 @@ Windows 10／11 的 Markdown 桌面編輯器，支援 x64 與 ARM64。本版本�
 - 遠端圖片在預覽中預設不載入；預覽停用原始 HTML。
 - 預覽不顯示連結與縮寫的原生 `title` 提示。
 - Word 匯出只嵌入本機相對路徑圖片。
+- Word 匯出不會排版數學公式或 Mermaid 圖表；數學以 LaTeX 原文、圖表以程式碼區塊呈現。
+- 含 Mermaid 圖表的文件首次預覽會稍慢（圖表引擎為離線資產，檔案較大）。
+- 貨幣寫法（例如 `$5`）可能被誤判為數學公式，可用 `\$` 跳脫。
 - 「跟隨系統」主題只在啟動時判斷。
 - 同步捲動為比例式，不是依 Markdown 行號精準對齊。
 - 尚未在 Windows 10 1809 與 ARM64 實機完整驗證。

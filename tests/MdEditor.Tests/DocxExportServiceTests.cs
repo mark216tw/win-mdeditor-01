@@ -53,4 +53,32 @@ public sealed class DocxExportServiceTests
         var errors = new OpenXmlValidator().Validate(document).ToList();
         Assert.Empty(errors);
     }
+
+    [Fact]
+    public async Task Export_PreservesMathSourceAsText()
+    {
+        using var temp = new TempDirectory();
+        var path = temp.Combine("math.docx");
+
+        const string markdown = """
+            行內 $E = mc^2$
+
+            $$
+            \int_0^1 x^2 dx
+            $$
+            """;
+
+        var service = new DocxExportService();
+        await service.ExportAsync(markdown, path, temp.DirectoryPath);
+
+        using var document = WordprocessingDocument.Open(path, false);
+        var text = document.MainDocumentPart!.Document!.Body!.InnerText;
+
+        Assert.Contains("$E = mc^2$", text);
+        Assert.Contains(@"\int_0^1 x^2 dx", text);
+        Assert.DoesNotContain("Markdig.Extensions.Mathematics", text);
+
+        var errors = new OpenXmlValidator().Validate(document).ToList();
+        Assert.Empty(errors);
+    }
 }

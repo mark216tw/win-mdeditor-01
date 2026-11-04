@@ -1,4 +1,4 @@
-import { copyFile, mkdir } from 'node:fs/promises';
+import { copyFile, cp, mkdir, rm } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import * as esbuild from 'esbuild';
 
@@ -35,6 +35,20 @@ async function build() {
   await copyFile(
     resolve(root, 'web/node_modules/highlight.js/styles/github-dark.min.css'),
     resolve(assets, 'Preview/github-dark.min.css'));
+
+  await copyFile(
+    resolve(root, 'web/node_modules/mermaid/dist/mermaid.min.js'),
+    resolve(assets, 'Preview/mermaid.min.js'));
+  await copyFile(
+    resolve(root, 'web/node_modules/katex/dist/katex.min.css'),
+    resolve(assets, 'Preview/katex.min.css'));
+
+  const katexFonts = resolve(assets, 'Preview/fonts');
+  await rm(katexFonts, { recursive: true, force: true });
+  await cp(
+    resolve(root, 'web/node_modules/katex/dist/fonts'),
+    katexFonts,
+    { recursive: true });
 
   console.log('Web assets built.');
 }

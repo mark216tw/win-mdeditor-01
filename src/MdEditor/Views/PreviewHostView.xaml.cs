@@ -57,7 +57,7 @@ public sealed partial class PreviewHostView : UserControl, IPreviewHost
 
         try
         {
-            await completion.Task.WaitAsync(TimeSpan.FromSeconds(15));
+            await completion.Task.WaitAsync(TimeSpan.FromSeconds(60));
         }
         finally
         {

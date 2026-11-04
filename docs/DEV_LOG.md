@@ -4,6 +4,36 @@
 
 ---
 
+## 2026-11-04 - v0.7.0
+
+### 目標
+在預覽與 PDF 支援數學公式與流程圖，維持離線運作與現有 CSP。
+
+### 變更
+- `web/package.json`：新增 `katex`、`mermaid`。
+- `web/build.mjs`：複製 `mermaid.min.js`、`katex.min.css` 與 KaTeX 字型到 `src/MdEditor/Assets/Preview`。
+- `Assets/Preview/preview.html`：載入 KaTeX CSS 與 Mermaid bundle。
+- `web/preview/src/preview.js`：
+  - KaTeX 排版 Markdig 產生的 `.math` 節點，並去除 Markdig 加入的 `\(`／`\[` 分隔符。
+  - Mermaid 將 `<pre class="mermaid">` 轉成 SVG，支援主題切換重繪、錯誤提示與渲染競態保護。
+  - 圖表與公式完成後才送出 `rendered`，確保 PDF 匯出完整。
+- `Assets/Preview/preview.css`：新增公式、圖表與錯誤樣式及列印規則。
+- `DocxExportService`：Word 匯出將數學公式保留為 LaTeX 原文（行內 `$...$`、區塊 `$$...$$`），不再輸出型別名稱或遺漏區塊。
+- `Views/PreviewHostView.xaml.cs`：渲染等待由 15 秒放寬為 60 秒。
+- `MarkdownRendererTests`：新增數學與 Mermaid 輸出測試；`DocxExportServiceTests`：新增數學原文匯出測試（共 40 個測試）。
+- 更新 README、使用指南、技術文件、系統架構、CHANGELOG、RELEASE_NOTES；版號更新為 0.7.0。
+
+### 問題與解法
+- Markdig 的 Mathematics 擴充輸出 `<span class="math">\(…\)</span>`／`<div class="math">\[…\]</div>`，直接交給 KaTeX 會把分隔符當成公式內容 → 先去除 `\(`、`\)`、`\[`、`\]` 再排版。
+- Mermaid 12 的 ESM 版本含 top-level await 與動態 import，無法直接併入 IIFE bundle → 改用官方預先打包的 `mermaid.min.js` UMD，以一般 script 載入。
+- 快速輸入時前一次的非同步圖表渲染可能覆蓋新內容 → 以 generation id 檢查，僅在仍為目前渲染時寫入 DOM。
+- Mermaid 可能留下暫存的 `#d{id}` 節點 → 渲染結束後主動移除。
+
+### 待辦／已知限制
+- Word 匯出仍以 LaTeX 原文與程式碼區塊呈現數學與圖表，尚未支援 OMML／圖片轉換。
+- PDF 中的 Mermaid 圖表沿用預覽當下配色，列印樣式不會重新著色。
+- 尚未在 Windows 10 1809 與 ARM64 實機驗證數學與圖表渲染。
+
 ## 2026-11-03 - v0.6.0
 
 ### 目標
