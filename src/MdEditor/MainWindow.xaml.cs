@@ -31,6 +31,8 @@ public sealed partial class MainWindow : Window
     private readonly UISettings _uiSettings = new();
     private SizeInt32 _lastNormalSize;
     private PointInt32 _lastNormalPosition;
+    private double _editorSplitRatio = 0.5;
+    private string? _recentMenuSignature;
     private bool _syncingTabs;
     private bool _isClosing;
     private bool _allowClose;
@@ -72,6 +74,8 @@ public sealed partial class MainWindow : Window
             ViewModel.RecentMenuStateChanged -= OnRecentMenuStateChanged;
             ViewModel.RecentFiles.CollectionChanged -= OnRecentFilesChanged;
             ViewModel.Dispose();
+            EditorHost.Close();
+            PreviewHost.Close();
         };
 
         AddPreferencesAccelerator();
@@ -90,6 +94,7 @@ public sealed partial class MainWindow : Window
         {
             await ViewModel.InitializeAsync(EditorHost, PreviewHost, filePath);
 
+            _editorSplitRatio = ViewModel.GetSavedSplitRatio();
             ApplyViewMode();
             SyncTabSelection();
             RebuildRecentMenu();
@@ -337,6 +342,16 @@ public sealed partial class MainWindow : Window
         {
             _syncingTabs = false;
         }
+
+        UpdateActiveTabVisuals(ViewModel.ActiveDocument);
+    }
+
+    private void UpdateActiveTabVisuals(DocumentViewModel? activeDocument)
+    {
+        foreach (var document in ViewModel.Documents)
+        {
+            document.IsActive = ReferenceEquals(document, activeDocument);
+        }
     }
 
     private async void DocumentTabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -349,6 +364,7 @@ public sealed partial class MainWindow : Window
         if (DocumentTabs.SelectedItem is DocumentViewModel document &&
             !ReferenceEquals(document, ViewModel.ActiveDocument))
         {
+            UpdateActiveTabVisuals(document);
             await ViewModel.SelectDocumentAsync(document);
         }
     }
@@ -471,7 +487,7 @@ public sealed partial class MainWindow : Window
 
     private async Task ShowPreferencesAsync()
     {
-        if (RootGrid.XamlRoot is null)
+        if (RootGrid.XamlRoot is null || _dialogs.IsDialogOpen)
         {
             return;
         }
@@ -481,6 +497,7 @@ public sealed partial class MainWindow : Window
             ViewModel.SyncScrollingEnabled,
             ViewModel.WordWrapEnabled,
             ViewModel.EditorFontSize,
+            ViewModel.EditorFontFamily,
             _fileAssociations.IsRegistered)
         {
             XamlRoot = RootGrid.XamlRoot,
@@ -510,7 +527,7 @@ public sealed partial class MainWindow : Window
         ContentDialogResult result;
         try
         {
-            result = await dialog.ShowAsync();
+            result = await _dialogs.ShowDialogAsync(dialog);
         }
         finally
         {
@@ -526,6 +543,7 @@ public sealed partial class MainWindow : Window
             dialog.SelectedTheme,
             dialog.SyncScrollingEnabled,
             dialog.WordWrapEnabled,
+            dialog.SelectedFontFamily,
             dialog.SelectedFontSize);
 
         var shouldRegister = dialog.FileAssociationEnabled;
@@ -567,7 +585,7 @@ public sealed partial class MainWindow : Window
 
     private async Task ShowAboutAsync()
     {
-        if (RootGrid.XamlRoot is null)
+        if (RootGrid.XamlRoot is null || _dialogs.IsDialogOpen)
         {
             return;
         }
@@ -578,7 +596,7 @@ public sealed partial class MainWindow : Window
             RequestedTheme = RootGrid.RequestedTheme,
         };
 
-        await dialog.ShowAsync();
+        await _dialogs.ShowDialogAsync(dialog);
     }
 
     private void ApplyViewMode()
@@ -609,8 +627,16 @@ public sealed partial class MainWindow : Window
                 Grid.SetColumn(PreviewHost, 2);
                 Grid.SetColumnSpan(PreviewHost, 1);
                 Splitter.Visibility = Visibility.Visible;
+                ApplySplitRatio(_editorSplitRatio);
                 break;
         }
+    }
+
+    private void ApplySplitRatio(double ratio)
+    {
+        var clamped = Math.Clamp(ratio, 0.25, 0.75);
+        EditorColumn.Width = new GridLength(clamped, GridUnitType.Star);
+        PreviewColumn.Width = new GridLength(1 - clamped, GridUnitType.Star);
     }
 
     private void Splitter_DragDelta(object? sender, double horizontalChange)
@@ -627,12 +653,25 @@ public sealed partial class MainWindow : Window
             minimum,
             Math.Max(minimum, total - minimum));
 
-        EditorColumn.Width = new GridLength(editorWidth, GridUnitType.Pixel);
-        PreviewColumn.Width = new GridLength(Math.Max(minimum, total - editorWidth), GridUnitType.Pixel);
+        _editorSplitRatio = editorWidth / total;
+        ApplySplitRatio(_editorSplitRatio);
+    }
+
+    private void Splitter_ResetRequested(object? sender, EventArgs e)
+    {
+        _editorSplitRatio = 0.5;
+        ApplySplitRatio(_editorSplitRatio);
     }
 
     private void RebuildRecentMenu()
     {
+        var signature = BuildRecentMenuSignature();
+        if (string.Equals(signature, _recentMenuSignature, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _recentMenuSignature = signature;
         RecentSubMenu.Items.Clear();
 
         if (ViewModel.RecentFiles.Count == 0)
@@ -702,6 +741,15 @@ public sealed partial class MainWindow : Window
         var clearItem = new MenuFlyoutItem { Text = "清除最近檔案" };
         clearItem.Click += async (_, _) => await ViewModel.ClearRecentFilesAsync();
         RecentSubMenu.Items.Add(clearItem);
+    }
+
+    private string BuildRecentMenuSignature()
+    {
+        var entries = string.Join(
+            '|',
+            ViewModel.RecentFiles.Select(entry =>
+                $"{entry.Path}\u0001{entry.DisplayName}\u0001{entry.IsPinned}\u0001{entry.IsMissing}"));
+        return (ViewModel.ActiveDocument?.FilePath ?? string.Empty) + "\u0002" + entries;
     }
 
     private void RootGrid_DragOver(object sender, DragEventArgs e)
@@ -840,10 +888,20 @@ public sealed partial class MainWindow : Window
         _ = ShowPreferencesAsync();
     }
 
+    private void ReopenClosedAccelerator_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        if (HandleAccelerator(args))
+        {
+            return;
+        }
+
+        ViewModel.ReopenClosedDocumentCommand.Execute(null);
+    }
+
     private bool HandleAccelerator(KeyboardAcceleratorInvokedEventArgs args)
     {
         args.Handled = true;
-        return _isClosing;
+        return _isClosing || _dialogs.IsDialogOpen;
     }
 
     private void CompactWindowSizeItem_Click(object sender, RoutedEventArgs e)
@@ -882,31 +940,35 @@ public sealed partial class MainWindow : Window
 
         try
         {
-            await ViewModel.BeginClosingAsync();
-
-            var windowState = AppWindow.Presenter is OverlappedPresenter
-            {
-                State: OverlappedPresenterState.Maximized,
-            }
-                ? "Maximized"
-                : "Normal";
-
-            await ViewModel.SaveWindowSettingsAsync(
-                _lastNormalSize.Width,
-                _lastNormalSize.Height,
-                windowState,
-                _lastNormalPosition.X,
-                _lastNormalPosition.Y);
-            await ViewModel.PersistSessionAsync();
-            _allowClose = true;
-            Close();
+            await PersistBeforeCloseAsync().WaitAsync(TimeSpan.FromSeconds(5));
         }
         catch (Exception ex)
         {
-            _isClosing = false;
-            RootGrid.IsHitTestVisible = true;
-            await ViewModel.CancelClosingAsync();
-            await _dialogs.ShowMessageAsync("無法關閉程式", ex.Message);
+            _logger.LogWarning(ex, "視窗關閉前儲存狀態失敗或逾時，仍繼續關閉視窗。");
         }
+
+        _allowClose = true;
+        Close();
+    }
+
+    private async Task PersistBeforeCloseAsync()
+    {
+        await ViewModel.BeginClosingAsync();
+
+        var windowState = AppWindow.Presenter is OverlappedPresenter
+        {
+            State: OverlappedPresenterState.Maximized,
+        }
+            ? "Maximized"
+            : "Normal";
+
+        await ViewModel.SaveWindowSettingsAsync(
+            _lastNormalSize.Width,
+            _lastNormalSize.Height,
+            windowState,
+            _lastNormalPosition.X,
+            _lastNormalPosition.Y,
+            _editorSplitRatio);
+        await ViewModel.PersistSessionAsync();
     }
 }

@@ -98,4 +98,27 @@ public sealed class FileServiceTests
         Assert.True(File.Exists(firstFullPath));
         Assert.Equal(bytes, await File.ReadAllBytesAsync(firstFullPath));
     }
+
+    [Fact]
+    public async Task LoadAsync_RejectsFileExceedingMaxSupportedBytes()
+    {
+        using var temp = new TempDirectory();
+        var path = temp.Combine("huge.md");
+        await using (var stream = File.Create(path))
+        {
+            stream.SetLength(FileService.MaxSupportedFileBytes + 1);
+        }
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => _service.LoadAsync(path));
+    }
+
+    [Fact]
+    public async Task SavePastedImageAsync_RejectsOversizedPayload()
+    {
+        using var temp = new TempDirectory();
+        var oversized = new byte[FileService.MaxPastedImageBytes + 1];
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            _service.SavePastedImageAsync(temp.DirectoryPath, oversized, "image/png"));
+    }
 }

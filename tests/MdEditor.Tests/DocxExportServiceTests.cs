@@ -81,4 +81,39 @@ public sealed class DocxExportServiceTests
         var errors = new OpenXmlValidator().Validate(document).ToList();
         Assert.Empty(errors);
     }
+
+    [Fact]
+    public async Task Export_EmbedsRelativeImageWithinDirectory_AndSkipsOutsidePaths()
+    {
+        using var temp = new TempDirectory();
+        var docDir = Path.Combine(temp.DirectoryPath, "docs");
+        var imagesDir = Path.Combine(docDir, "images");
+        Directory.CreateDirectory(imagesDir);
+
+        var onePixelPng = Convert.FromBase64String(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
+
+        var insideImage = Path.Combine(imagesDir, "inside.png");
+        var outsideImage = Path.Combine(temp.DirectoryPath, "outside.png");
+        await File.WriteAllBytesAsync(insideImage, onePixelPng);
+        await File.WriteAllBytesAsync(outsideImage, onePixelPng);
+
+        var outputPath = Path.Combine(temp.DirectoryPath, "images-security.docx");
+        var markdown = $"""
+            ![合法圖片](images/inside.png)
+
+            ![上層逃逸](../outside.png)
+
+            ![絕對路徑]({outsideImage.Replace('\\', '/')})
+            """;
+
+        var service = new DocxExportService();
+        await service.ExportAsync(markdown, outputPath, docDir);
+
+        using var document = WordprocessingDocument.Open(outputPath, false);
+        Assert.Single(document.MainDocumentPart!.ImageParts);
+
+        var errors = new OpenXmlValidator().Validate(document).ToList();
+        Assert.Empty(errors);
+    }
 }

@@ -20,6 +20,8 @@ public interface IEditorHost
 
     event EventHandler<EditorImagePasteEventArgs>? ImagePasted;
 
+    bool IsReady { get; }
+
     Task InitializeAsync();
 
     Task SetContentAsync(string text, string documentId);
@@ -37,6 +39,8 @@ public interface IEditorHost
     Task SetThemeAsync(string theme);
 
     Task SetWordWrapAsync(bool enabled);
+
+    Task SetFontFamilyAsync(string family);
 
     Task SetFontSizeAsync(double size);
 

@@ -42,6 +42,17 @@ public sealed class MarkdownRendererTests
     }
 
     [Fact]
+    public void Render_BlocksParentTraversalAndRootedImagePaths()
+    {
+        var html = _renderer.Render(
+            "![上層](../secret.png)\n\n![深層逃逸](images/../../secret.png)\n\n![正常](images/sub/../ok.png)",
+            @"C:\temp\docs");
+
+        Assert.DoesNotContain("secret.png", html, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("https://doc.local/images/ok.png", html);
+    }
+
+    [Fact]
     public void Render_KeepsAbsoluteImage()
     {
         var html = _renderer.Render(

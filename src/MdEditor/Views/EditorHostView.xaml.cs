@@ -15,8 +15,10 @@ public sealed partial class EditorHostView : UserControl, IEditorHost
     private TaskCompletionSource? _readySource;
     private string _theme = "light";
     private bool _wordWrap = true;
+    private string _fontFamily = "Cascadia Mono";
     private double _fontSize = 14;
     private bool _includeTextInChange = true;
+    private bool _readOnly;
 
     public EditorHostView()
     {
@@ -34,6 +36,8 @@ public sealed partial class EditorHostView : UserControl, IEditorHost
     public event EventHandler<double>? FontSizeChanged;
 
     public event EventHandler<EditorImagePasteEventArgs>? ImagePasted;
+
+    public bool IsReady => _initializeTask is { IsCompletedSuccessfully: true };
 
     public Task InitializeAsync()
     {
@@ -190,6 +194,23 @@ public sealed partial class EditorHostView : UserControl, IEditorHost
         });
     }
 
+    public async Task SetFontFamilyAsync(string family)
+    {
+        _fontFamily = string.IsNullOrWhiteSpace(family) ? "Cascadia Mono" : family.Trim();
+
+        if (_initializeTask is null)
+        {
+            return;
+        }
+
+        await InitializeAsync();
+        Post(new
+        {
+            type = "fontFamily",
+            family = _fontFamily,
+        });
+    }
+
     public async Task SetIncludeTextInChangeAsync(bool enabled)
     {
         _includeTextInChange = enabled;
@@ -207,21 +228,39 @@ public sealed partial class EditorHostView : UserControl, IEditorHost
         });
     }
 
-    public async Task SetReadOnlyAsync(bool enabled)
+    public Task SetReadOnlyAsync(bool enabled)
     {
-        await InitializeAsync();
-        Post(new
+        _readOnly = enabled;
+        if (IsReady)
         {
-            type = "readOnly",
-            enabled,
-        });
+            Post(new
+            {
+                type = "readOnly",
+                enabled,
+            });
+        }
+
+        return Task.CompletedTask;
     }
 
     public async Task FocusAsync()
     {
+        if (_initializeTask is { IsFaulted: true } or { IsCanceled: true })
+        {
+            return;
+        }
+
         await InitializeAsync();
         WebView.Focus(FocusState.Programmatic);
         Post(new { type = "focus" });
+    }
+
+    public void Close()
+    {
+        if (WebView.CoreWebView2 is not null)
+        {
+            WebView.Close();
+        }
     }
 
     private async Task InitializeCoreAsync()
@@ -230,8 +269,10 @@ public sealed partial class EditorHostView : UserControl, IEditorHost
         {
             _readySource = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             await WaitForLoadedAsync();
-            var environment = await WebViewEnvironmentProvider.GetAsync();
-            await WebView.EnsureCoreWebView2Async(environment);
+            var environment = await WebViewEnvironmentProvider.GetAsync()
+                .WaitAsync(TimeSpan.FromSeconds(20));
+            await WebView.EnsureCoreWebView2Async(environment).AsTask()
+                .WaitAsync(TimeSpan.FromSeconds(20));
 
             var core = WebView.CoreWebView2;
             core.Settings.AreDevToolsEnabled = false;
@@ -257,14 +298,21 @@ public sealed partial class EditorHostView : UserControl, IEditorHost
 
             Post(new { type = "theme", theme = _theme });
             Post(new { type = "wordWrap", enabled = _wordWrap });
+            Post(new { type = "fontFamily", family = _fontFamily });
             Post(new { type = "font", size = _fontSize });
             Post(new { type = "changeMode", includeText = _includeTextInChange });
+            if (_readOnly)
+            {
+                Post(new { type = "readOnly", enabled = true });
+            }
         }
         catch (Exception ex)
         {
             ShowError(
-                "請確認已安裝 Microsoft Edge WebView2 Runtime，且應用程式 Assets 資料夾完整。\n\n" +
-                ex.Message);
+                ex is TimeoutException
+                    ? "WebView2 初始化逾時。使用者資料夾可能被其他程序鎖定，請關閉殘留的 msedgewebview2.exe 後再試。"
+                    : "請確認已安裝 Microsoft Edge WebView2 Runtime，且應用程式 Assets 資料夾完整。\n\n" +
+                      ex.Message);
             throw new InvalidOperationException("編輯器初始化失敗。", ex);
         }
     }
@@ -338,7 +386,8 @@ public sealed partial class EditorHostView : UserControl, IEditorHost
                     ImagePasted?.Invoke(this, new EditorImagePasteEventArgs(
                         GetString(root, "documentId"),
                         GetString(root, "mimeType"),
-                        GetString(root, "base64")));
+                        GetString(root, "base64"),
+                        GetBoolean(root, "tooLarge")));
                     break;
 
                 case "shortcut":
@@ -427,5 +476,12 @@ public sealed partial class EditorHostView : UserControl, IEditorHost
         return element.TryGetProperty(name, out var property) && property.TryGetDouble(out var value)
             ? value
             : 0;
+    }
+
+    private static bool GetBoolean(JsonElement element, string name)
+    {
+        return element.TryGetProperty(name, out var property) &&
+               property.ValueKind is JsonValueKind.True or JsonValueKind.False &&
+               property.GetBoolean();
     }
 }

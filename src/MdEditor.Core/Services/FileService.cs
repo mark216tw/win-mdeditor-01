@@ -31,6 +31,10 @@ public interface IFileService
 
 public sealed class FileService : IFileService
 {
+    public const long MaxSupportedFileBytes = 50L * 1024 * 1024;
+    public const long LargeFileWarningBytes = 10L * 1024 * 1024;
+    public const int MaxPastedImageBytes = 20 * 1024 * 1024;
+
     static FileService()
     {
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
@@ -39,6 +43,12 @@ public sealed class FileService : IFileService
     public async Task<LoadedDocument> LoadAsync(string path, CancellationToken cancellationToken = default)
     {
         var fullPath = Path.GetFullPath(path);
+        var fileInfo = new FileInfo(fullPath);
+        if (fileInfo.Exists && fileInfo.Length > MaxSupportedFileBytes)
+        {
+            throw new InvalidOperationException($"檔案大小超過上限（{MaxSupportedFileBytes / (1024 * 1024)} MB），無法載入。");
+        }
+
         var bytes = await File.ReadAllBytesAsync(fullPath, cancellationToken).ConfigureAwait(false);
 
         return await Task.Run(
@@ -180,6 +190,11 @@ public sealed class FileService : IFileService
         if (bytes is null || bytes.Length == 0)
         {
             throw new ArgumentException("圖片內容不可為空。", nameof(bytes));
+        }
+
+        if (bytes.Length > MaxPastedImageBytes)
+        {
+            throw new InvalidOperationException($"貼上的圖片超過大小上限（{MaxPastedImageBytes / (1024 * 1024)} MB）。");
         }
 
         var fullDirectory = Path.GetFullPath(documentDirectory);

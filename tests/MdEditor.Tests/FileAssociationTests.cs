@@ -23,6 +23,8 @@ public sealed class FileAssociationTests
     [Fact]
     public void RegistrationPlanRegistersEveryExtension()
     {
+        Assert.Equal([".md", ".markdown", ".mdown", ".mkd"], FileAssociationRegistration.Extensions);
+
         var plan = FileAssociationRegistration.CreateRegistrationPlan(ExecutablePath);
 
         foreach (var extension in FileAssociationRegistration.Extensions)

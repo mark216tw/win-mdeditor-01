@@ -49,6 +49,12 @@ async function build() {
     .replace(/,url\(fonts\/[^)]+\.ttf\) format\("truetype"\)/g, '');
   await writeFile(katexCssPath, katexCss);
 
+  const katexPackage = JSON.parse(
+    await readFile(resolve(root, 'web/node_modules/katex/package.json'), 'utf8'));
+  await writeFile(
+    resolve(assets, 'Preview/katex-version.txt'),
+    `${katexPackage.version}\n`);
+
   const katexFonts = resolve(assets, 'Preview/fonts');
   await rm(katexFonts, { recursive: true, force: true });
   await mkdir(katexFonts, { recursive: true });

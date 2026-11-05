@@ -8,7 +8,7 @@
     CloseButtonText="關閉"
     DefaultButton="Close"
     mc:Ignorable="d">
-    <StackPanel MinWidth="400" Spacing="16">
+    <StackPanel MinWidth="420" Spacing="14">
         <StackPanel Orientation="Horizontal" Spacing="14">
             <Image
                 Width="64"
@@ -23,18 +23,24 @@
         </StackPanel>
 
         <TextBlock
-            Text="Windows 上的 Markdown 編輯器，支援即時預覽、多文件分頁、PDF／Word 匯出與外部變更偵測。"
+            Text="Windows 上的 Markdown 編輯器，支援即時預覽、多文件分頁、數學公式／Mermaid 圖表、PDF／Word 匯出與外部變更偵測。"
             TextWrapping="Wrap" />
 
         <TextBlock
             Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-            Text="使用元件：WinUI 3、CodeMirror 6、Markdig、Open XML SDK、highlight.js"
+            Text="使用元件：WinUI 3、CodeMirror 6、Markdig、Open XML SDK、highlight.js、KaTeX、Mermaid"
+            TextWrapping="Wrap" />
+
+        <TextBlock
+            FontSize="12"
+            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+            Text="授權與隱私：本軟體採用 MIT License 開源授權（第三方元件授權詳見隨附之 THIRD-PARTY-NOTICES.txt）。所有編輯、預覽與匯出皆在本機離線處理，不會上傳任何文件內容或遙測資料。"
             TextWrapping="Wrap" />
 
         <TextBlock
             FontSize="12"
             Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-            Text="Copyright © VibeCode"
+            Text="Copyright © 2026 VibeCode (mark216tw)"
             TextWrapping="Wrap" />
     </StackPanel>
 </ContentDialog>

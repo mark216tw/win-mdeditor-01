@@ -9,6 +9,7 @@ using Markdig.Extensions.Mathematics;
 using Markdig.Extensions.TaskLists;
 using Markdig.Syntax;
 using Markdig.Syntax.Inlines;
+using VibeCode.MdEditor.Core.Helpers;
 using A = DocumentFormat.OpenXml.Drawing;
 using DW = DocumentFormat.OpenXml.Drawing.Wordprocessing;
 using MdTable = Markdig.Extensions.Tables.Table;
@@ -749,24 +750,33 @@ public sealed class DocxExportService : IDocxExportService
             if (string.IsNullOrWhiteSpace(url) ||
                 url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
                 url.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ||
-                url.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+                url.StartsWith("data:", StringComparison.OrdinalIgnoreCase) ||
+                url.StartsWith("file:", StringComparison.OrdinalIgnoreCase))
             {
                 return null;
             }
 
-            string? path = null;
-            if (Path.IsPathRooted(url))
+            var pathPart = url;
+            var fragmentIndex = pathPart.IndexOf('#');
+            if (fragmentIndex >= 0)
             {
-                path = url;
-            }
-            else if (!string.IsNullOrEmpty(_baseDirectory))
-            {
-                path = Path.GetFullPath(Path.Combine(
-                    _baseDirectory,
-                    url.Replace('/', Path.DirectorySeparatorChar)));
+                pathPart = pathPart[..fragmentIndex];
             }
 
-            if (path is null || !File.Exists(path))
+            var queryIndex = pathPart.IndexOf('?');
+            if (queryIndex >= 0)
+            {
+                pathPart = pathPart[..queryIndex];
+            }
+
+            var path = PathSafety.TryResolveRelativePathWithinDirectory(_baseDirectory, pathPart);
+            if (path is null)
+            {
+                return null;
+            }
+
+            var fileInfo = new FileInfo(path);
+            if (!fileInfo.Exists || fileInfo.Length <= 0 || fileInfo.Length > FileService.MaxSupportedFileBytes)
             {
                 return null;
             }

@@ -15,11 +15,15 @@ public enum SaveDecision
 
 public interface IDialogService
 {
+    bool IsDialogOpen { get; }
+
     void Initialize(Window window);
 
     Task<string?> PickOpenFileAsync();
 
     Task<string?> PickSaveFileAsync(string suggestedName, string typeLabel, string extension);
+
+    Task<ContentDialogResult> ShowDialogAsync(ContentDialog dialog);
 
     Task<bool> ConfirmAsync(string title, string message, string primaryText, string closeText);
 
@@ -28,9 +32,13 @@ public interface IDialogService
     Task ShowMessageAsync(string title, string message);
 }
 
-public sealed class DialogService : IDialogService
+public sealed class DialogService : IDialogService, IDisposable
 {
+    private readonly SemaphoreSlim _dialogLock = new(1, 1);
     private Window? _window;
+    private bool _disposed;
+
+    public bool IsDialogOpen => _dialogLock.CurrentCount == 0;
 
     public void Initialize(Window window)
     {
@@ -72,11 +80,31 @@ public sealed class DialogService : IDialogService
         return file?.Path;
     }
 
+    public async Task<ContentDialogResult> ShowDialogAsync(ContentDialog dialog)
+    {
+        dialog.XamlRoot ??= RequireXamlRoot();
+        if (dialog.RequestedTheme == ElementTheme.Default)
+        {
+            dialog.RequestedTheme = ResolveRequestedTheme();
+        }
+
+        await _dialogLock.WaitAsync();
+        try
+        {
+            return await dialog.ShowAsync();
+        }
+        finally
+        {
+            _dialogLock.Release();
+        }
+    }
+
     public async Task<bool> ConfirmAsync(string title, string message, string primaryText, string closeText)
     {
         var dialog = new ContentDialog
         {
             XamlRoot = RequireXamlRoot(),
+            RequestedTheme = ResolveRequestedTheme(),
             Title = title,
             Content = message,
             PrimaryButtonText = primaryText,
@@ -84,7 +112,7 @@ public sealed class DialogService : IDialogService
             DefaultButton = ContentDialogButton.Primary,
         };
 
-        return await dialog.ShowAsync() == ContentDialogResult.Primary;
+        return await ShowDialogAsync(dialog) == ContentDialogResult.Primary;
     }
 
     public async Task<SaveDecision> ConfirmSaveAsync(string title, string message)
@@ -92,6 +120,7 @@ public sealed class DialogService : IDialogService
         var dialog = new ContentDialog
         {
             XamlRoot = RequireXamlRoot(),
+            RequestedTheme = ResolveRequestedTheme(),
             Title = title,
             Content = message,
             PrimaryButtonText = "儲存",
@@ -100,7 +129,7 @@ public sealed class DialogService : IDialogService
             DefaultButton = ContentDialogButton.Primary,
         };
 
-        return await dialog.ShowAsync() switch
+        return await ShowDialogAsync(dialog) switch
         {
             ContentDialogResult.Primary => SaveDecision.Save,
             ContentDialogResult.Secondary => SaveDecision.Discard,
@@ -113,13 +142,25 @@ public sealed class DialogService : IDialogService
         var dialog = new ContentDialog
         {
             XamlRoot = RequireXamlRoot(),
+            RequestedTheme = ResolveRequestedTheme(),
             Title = title,
             Content = message,
             CloseButtonText = "關閉",
             DefaultButton = ContentDialogButton.Close,
         };
 
-        await dialog.ShowAsync();
+        await ShowDialogAsync(dialog);
+    }
+
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        _dialogLock.Dispose();
     }
 
     private Window RequireWindow()
@@ -131,6 +172,11 @@ public sealed class DialogService : IDialogService
     {
         var content = RequireWindow().Content;
         return content?.XamlRoot ?? throw new InvalidOperationException("視窗內容尚未載入。");
+    }
+
+    private ElementTheme ResolveRequestedTheme()
+    {
+        return (RequireWindow().Content as FrameworkElement)?.RequestedTheme ?? ElementTheme.Default;
     }
 
     private static string SanitizeFileName(string name)

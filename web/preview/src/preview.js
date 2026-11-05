@@ -678,6 +678,30 @@ async function preparePrint() {
   await new Promise((resolve) => requestAnimationFrame(() => resolve()));
 }
 
+function buildExportHtml() {
+  for (const code of content.querySelectorAll('pre code')) {
+    if (!isMermaidCode(code)) {
+      applyHighlight(code);
+    }
+  }
+
+  const clone = content.cloneNode(true);
+
+  for (const button of clone.querySelectorAll('.code-copy')) {
+    button.remove();
+  }
+
+  for (const checkbox of clone.querySelectorAll('input[type="checkbox"]')) {
+    checkbox.disabled = true;
+  }
+
+  for (const element of clone.querySelectorAll('[data-line]')) {
+    element.removeAttribute('data-line');
+  }
+
+  return clone.innerHTML;
+}
+
 window.chrome?.webview?.addEventListener('message', async (event) => {
   const data = event.data;
   if (!data || typeof data.type !== 'string') {
@@ -699,6 +723,9 @@ window.chrome?.webview?.addEventListener('message', async (event) => {
       scrollToSourceLine(Number(data.line), data.percent);
       break;
     }
+    case 'exportHtml':
+      send({ type: 'exportHtml', id: data.id, html: buildExportHtml() });
+      break;
     case 'preparePrint':
       await preparePrint();
       send({ type: 'printReady', id: data.id });
@@ -721,6 +748,8 @@ window.addEventListener('keydown', (event) => {
   } else if (event.shiftKey) {
     if (key === 's') {
       name = 'saveAs';
+    } else if (key === 't') {
+      name = 'reopenClosed';
     } else if (key === '+' || key === '=') {
       name = 'zoomIn';
     }
@@ -790,6 +819,18 @@ document.addEventListener('click', (event) => {
 
   event.preventDefault();
   send({ type: 'link', href });
+});
+
+document.addEventListener('contextmenu', (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  const anchor = target?.closest('a') ?? null;
+  const image = target?.closest('img') ?? null;
+
+  window.__mdeditorContextTarget = {
+    link: anchor?.getAttribute('href') ?? null,
+    image: image?.getAttribute('src') ?? null,
+    selection: window.getSelection()?.toString() ?? '',
+  };
 });
 
 document.addEventListener('change', (event) => {

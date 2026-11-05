@@ -16,7 +16,7 @@ public static class FileAssociationRegistration
     public const string CapabilitiesPath = @"Software\VibeCode\MdEditor\Capabilities";
     public const string RegisteredApplicationsPath = @"Software\RegisteredApplications";
 
-    public static readonly IReadOnlyList<string> Extensions = [".md", ".markdown"];
+    public static readonly IReadOnlyList<string> Extensions = [".md", ".markdown", ".mdown", ".mkd"];
 
     private const string ClassesPath = @"Software\Classes";
 

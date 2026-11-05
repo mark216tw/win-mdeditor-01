@@ -16,6 +16,8 @@ public interface IPreviewHost
 
     Task RenderAsync(string html, string theme, string renderId, string documentId);
 
+    Task<string> GetRenderedHtmlAsync();
+
     Task SetThemeAsync(string theme);
 
     Task SetFontSizeAsync(double size);

@@ -110,6 +110,7 @@ function themeExtensions(theme) {
 let currentTheme = 'light';
 let currentWordWrap = true;
 let currentReadOnly = false;
+let currentFontFamily = 'Cascadia Mono';
 let currentFontSize = 14;
 let includeTextInChange = true;
 let currentDocumentId = null;
@@ -176,6 +177,14 @@ function buildExtensions() {
         preventDefault: true,
         run: () => {
           send({ type: 'shortcut', name: 'preferences' });
+          return true;
+        },
+      },
+      {
+        key: 'Mod-Shift-t',
+        preventDefault: true,
+        run: () => {
+          send({ type: 'shortcut', name: 'reopenClosed' });
           return true;
         },
       },
@@ -307,6 +316,17 @@ function buildExtensions() {
             event.preventDefault();
             const targetDocumentId = currentDocumentId;
             const mimeType = file.type || imageItem.type;
+            if (file.size > 20 * 1024 * 1024) {
+              send({
+                type: 'pasteImage',
+                documentId: targetDocumentId,
+                mimeType,
+                base64: '',
+                tooLarge: true,
+              });
+              return true;
+            }
+
             const reader = new FileReader();
             reader.onload = () => {
               if (typeof reader.result !== 'string') {
@@ -552,6 +572,14 @@ function setFontSize(size) {
   document.documentElement.style.setProperty(
     '--editor-font-size',
     `${currentFontSize}px`);
+}
+
+function setFontFamily(family) {
+  const value = String(family ?? '').replace(/[";\\]/g, '').trim() || 'Cascadia Mono';
+  currentFontFamily = value;
+  document.documentElement.style.setProperty(
+    '--editor-font-family',
+    `"${value}", "Cascadia Mono", Consolas, monospace`);
 }
 
 function currentSelection() {
@@ -857,6 +885,9 @@ window.chrome?.webview?.addEventListener('message', (event) => {
       break;
     case 'wordWrap':
       setWordWrap(data.enabled);
+      break;
+    case 'fontFamily':
+      setFontFamily(data.family);
       break;
     case 'font':
       setFontSize(data.size);

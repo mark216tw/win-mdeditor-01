@@ -26,5 +26,7 @@ public sealed class AppSettings
 
     public string WindowState { get; set; } = "Normal";
 
+    public double EditorSplitRatio { get; set; } = 0.5;
+
     public List<RecentFileEntry> RecentFiles { get; set; } = [];
 }

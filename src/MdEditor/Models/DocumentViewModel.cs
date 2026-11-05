@@ -70,6 +70,15 @@ public sealed partial class DocumentViewModel : ObservableObject
     [ObservableProperty]
     public partial bool IsMissing { get; set; }
 
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ActiveVisibility))]
+    [NotifyPropertyChangedFor(nameof(InactiveVisibility))]
+    public partial bool IsActive { get; set; }
+
+    public Visibility ActiveVisibility => IsActive ? Visibility.Visible : Visibility.Collapsed;
+
+    public Visibility InactiveVisibility => IsActive ? Visibility.Collapsed : Visibility.Visible;
+
     public string Id { get; init; } = Guid.NewGuid().ToString("N");
 
     public long Revision { get; set; } = 1;

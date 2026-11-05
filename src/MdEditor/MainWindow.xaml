@@ -68,6 +68,10 @@
                 Key="Tab"
                 Invoked="PreviousTabAccelerator_Invoked"
                 Modifiers="Control,Shift" />
+            <KeyboardAccelerator
+                Key="T"
+                Invoked="ReopenClosedAccelerator_Invoked"
+                Modifiers="Control,Shift" />
         </Grid.KeyboardAccelerators>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -104,6 +108,10 @@
                     Command="{x:Bind ViewModel.SaveAllCommand}"
                     Text="儲存全部" />
                 <MenuFlyoutSeparator />
+                <MenuFlyoutItem
+                    Command="{x:Bind ViewModel.ReopenClosedDocumentCommand}"
+                    KeyboardAcceleratorTextOverride="Ctrl+Shift+T"
+                    Text="重新開啟關閉的文件" />
                 <MenuFlyoutSubItem x:Name="RecentSubMenu" Text="最近開啟" />
                 <MenuFlyoutSubItem Text="匯出">
                     <MenuFlyoutItem
@@ -112,12 +120,16 @@
                     <MenuFlyoutItem
                         Command="{x:Bind ViewModel.ExportWordCommand}"
                         Text="匯出 Word (.docx)..." />
+                    <MenuFlyoutItem
+                        Command="{x:Bind ViewModel.ExportHtmlCommand}"
+                        Text="匯出 HTML..." />
                 </MenuFlyoutSubItem>
                 <MenuFlyoutSeparator />
                 <MenuFlyoutItem
-                    Command="{x:Bind ViewModel.CloseActiveDocumentCommand}"
-                    KeyboardAcceleratorTextOverride="Ctrl+W"
-                    Text="關閉文件" />
+                    Click="PreferencesItem_Click"
+                    KeyboardAcceleratorTextOverride="Ctrl+,"
+                    Text="偏好設定..." />
+                <MenuFlyoutSeparator />
                 <MenuFlyoutItem Click="ExitItem_Click" Text="結束程式" />
             </MenuBarItem>
             <MenuBarItem AccessKey="E" Title="編輯 (E)">
@@ -173,7 +185,7 @@
                 <MenuFlyoutSeparator />
                 <MenuFlyoutItem
                     Command="{x:Bind ViewModel.ZoomInCommand}"
-                    KeyboardAcceleratorTextOverride="Ctrl++"
+                    KeyboardAcceleratorTextOverride="Ctrl+="
                     Text="放大字型" />
                 <MenuFlyoutItem
                     Command="{x:Bind ViewModel.ZoomOutCommand}"
@@ -184,18 +196,12 @@
                     KeyboardAcceleratorTextOverride="Ctrl+0"
                     Text="重設字型大小" />
             </MenuBarItem>
-            <MenuBarItem AccessKey="S" Title="設定 (S)">
-                <MenuFlyoutItem
-                    Click="PreferencesItem_Click"
-                    KeyboardAcceleratorTextOverride="Ctrl+,"
-                    Text="偏好設定..." />
-                <MenuFlyoutItem Click="AboutItem_Click" Text="關於" />
-            </MenuBarItem>
             <MenuBarItem AccessKey="W" Title="視窗 (W)">
                 <MenuFlyoutItem Click="CompactWindowSizeItem_Click" Text="精簡寬度 (60%)" />
                 <MenuFlyoutItem Click="ComfortableWindowSizeItem_Click" Text="舒適寬度 (80%)" />
-                <MenuFlyoutSeparator />
                 <MenuFlyoutItem Click="MaximizeWindowItem_Click" Text="最大化" />
+                <MenuFlyoutSeparator />
+                <MenuFlyoutItem Click="AboutItem_Click" Text="關於" />
             </MenuBarItem>
         </MenuBar>
 
@@ -373,6 +379,28 @@
                         Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
 
                     <Button
+                        AutomationProperties.Name="復原"
+                        Command="{x:Bind ViewModel.EditorCommandCommand}"
+                        CommandParameter="undo"
+                        Style="{StaticResource ToolbarButtonStyle}"
+                        ToolTipService.ToolTip="復原 (Ctrl+Z)">
+                        <SymbolIcon Symbol="Undo" />
+                    </Button>
+                    <Button
+                        AutomationProperties.Name="重做"
+                        Command="{x:Bind ViewModel.EditorCommandCommand}"
+                        CommandParameter="redo"
+                        Style="{StaticResource ToolbarButtonStyle}"
+                        ToolTipService.ToolTip="重做 (Ctrl+Y)">
+                        <SymbolIcon Symbol="Redo" />
+                    </Button>
+
+                    <Border
+                        Width="1"
+                        Margin="4,0"
+                        Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+
+                    <Button
                         AutomationProperties.Name="切換檢視模式"
                         Command="{x:Bind ViewModel.CycleViewModeCommand}"
                         Style="{StaticResource ToolbarButtonStyle}"
@@ -394,6 +422,9 @@
             SelectionMode="Single"
             ScrollViewer.HorizontalScrollBarVisibility="Auto"
             ScrollViewer.VerticalScrollBarVisibility="Disabled">
+            <ListView.Resources>
+                <x:Boolean x:Key="ListViewItemSelectionIndicatorVisualEnabled">False</x:Boolean>
+            </ListView.Resources>
             <ListView.ItemsPanel>
                 <ItemsPanelTemplate>
                     <StackPanel Orientation="Horizontal" />
@@ -405,19 +436,81 @@
                     <Setter Property="Padding" Value="0" />
                     <Setter Property="Margin" Value="0,0,4,0" />
                     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                    <Setter Property="VerticalContentAlignment" Value="Stretch" />
                 </Style>
             </ListView.ItemContainerStyle>
             <ListView.ItemTemplate>
                 <DataTemplate x:DataType="models:DocumentViewModel">
-                    <Border
-                        Padding="12,0,6,0"
-                        Background="{ThemeResource LayerFillColorDefaultBrush}"
-                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                        BorderThickness="1"
-                        CornerRadius="8,8,0,0"
+                    <Grid
                         PointerPressed="Tab_PointerPressed"
                         Tag="{x:Bind Id}">
-                        <Border.ContextFlyout>
+                        <Border
+                            Background="{ThemeResource LayerFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1"
+                            CornerRadius="8,8,0,0"
+                            Visibility="{x:Bind InactiveVisibility, Mode=OneWay}" />
+
+                        <Border
+                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1"
+                            CornerRadius="8,8,0,0"
+                            Visibility="{x:Bind ActiveVisibility, Mode=OneWay}" />
+
+                        <Grid Padding="12,0,6,0">
+                            <StackPanel
+                                VerticalAlignment="Center"
+                                Orientation="Horizontal"
+                                Spacing="6">
+                                <Grid VerticalAlignment="Center">
+                                    <TextBlock
+                                        MaxWidth="180"
+                                        VerticalAlignment="Center"
+                                        FontWeight="Normal"
+                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                        Text="{x:Bind Title, Mode=OneWay}"
+                                        TextTrimming="CharacterEllipsis"
+                                        Visibility="{x:Bind InactiveVisibility, Mode=OneWay}" />
+                                    <TextBlock
+                                        MaxWidth="180"
+                                        VerticalAlignment="Center"
+                                        FontWeight="SemiBold"
+                                        Foreground="{ThemeResource TextFillColorPrimaryBrush}"
+                                        Text="{x:Bind Title, Mode=OneWay}"
+                                        TextTrimming="CharacterEllipsis"
+                                        Visibility="{x:Bind ActiveVisibility, Mode=OneWay}" />
+                                </Grid>
+                                <TextBlock
+                                    VerticalAlignment="Center"
+                                    FontSize="8"
+                                    Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
+                                    Text="●"
+                                    Visibility="{x:Bind DirtyVisibility, Mode=OneWay}" />
+                                <Button
+                                    Width="22"
+                                    Height="22"
+                                    Padding="0"
+                                    AutomationProperties.Name="關閉文件"
+                                    Background="Transparent"
+                                    BorderThickness="0"
+                                    Click="CloseTab_Click"
+                                    Content="&#xE711;"
+                                    FontFamily="{ThemeResource SymbolThemeFontFamily}"
+                                    FontSize="9"
+                                    Tag="{x:Bind Id}"
+                                    ToolTipService.ToolTip="關閉文件" />
+                            </StackPanel>
+                        </Grid>
+
+                        <Border
+                            Height="2"
+                            VerticalAlignment="Bottom"
+                            Background="{ThemeResource AccentFillColorDefaultBrush}"
+                            CornerRadius="1,1,0,0"
+                            Visibility="{x:Bind ActiveVisibility, Mode=OneWay}" />
+
+                        <Grid.ContextFlyout>
                             <MenuFlyout>
                                 <MenuFlyoutItem
                                     Click="CloseTab_Click"
@@ -437,44 +530,15 @@
                                     Tag="{x:Bind Id}"
                                     Text="在檔案總管中顯示" />
                             </MenuFlyout>
-                        </Border.ContextFlyout>
-                        <StackPanel
-                            VerticalAlignment="Center"
-                            Orientation="Horizontal"
-                            Spacing="6">
-                            <TextBlock
-                                MaxWidth="180"
-                                VerticalAlignment="Center"
-                                Text="{x:Bind Title, Mode=OneWay}"
-                                TextTrimming="CharacterEllipsis" />
-                            <TextBlock
-                                VerticalAlignment="Center"
-                                FontSize="8"
-                                Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
-                                Text="●"
-                                Visibility="{x:Bind DirtyVisibility, Mode=OneWay}" />
-                            <Button
-                                Width="22"
-                                Height="22"
-                                Padding="0"
-                                AutomationProperties.Name="關閉文件"
-                                Background="Transparent"
-                                BorderThickness="0"
-                                Click="CloseTab_Click"
-                                Content="&#xE711;"
-                                FontFamily="Segoe MDL2 Assets"
-                                FontSize="9"
-                                Tag="{x:Bind Id}"
-                                ToolTipService.ToolTip="關閉文件" />
-                        </StackPanel>
-                    </Border>
+                        </Grid.ContextFlyout>
+                    </Grid>
                 </DataTemplate>
             </ListView.ItemTemplate>
         </ListView>
 
         <Grid
             Grid.Row="3"
-            Margin="8,0,8,8"
+            Margin="8,0,8,0"
             ColumnSpacing="0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition x:Name="EditorColumn" Width="*" MinWidth="220" />
@@ -488,7 +552,8 @@
                 Grid.Column="1"
                 Width="6"
                 AutomationProperties.Name="調整編輯與預覽寬度"
-                DragDelta="Splitter_DragDelta" />
+                DragDelta="Splitter_DragDelta"
+                ResetRequested="Splitter_ResetRequested" />
             <views:PreviewHostView x:Name="PreviewHost" Grid.Column="2" />
         </Grid>
 

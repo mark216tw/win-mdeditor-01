@@ -4,6 +4,199 @@
 
 ---
 
+## 2026-11-05 - v1.1.0
+
+### 目標
+新增 HTML 匯出（單一檔案、跟隨 App 主題、KaTeX 字型使用 CDN），並在工具列檢視按鈕左側加入復原／重做圖示按鈕；取消底線工具規劃。
+
+### 變更
+- `src/MdEditor.Core/Services/HtmlExportService.cs`：新增 `IHtmlExportService`／`HtmlExportService`，包裝預覽 HTML、內嵌 `preview.css`、程式碼高亮 CSS、CSP、本機圖片 data URI，並把 KaTeX 字型 URL 改寫為 jsDelivr CDN。
+- `web/build.mjs`：建置時輸出 `Assets/Preview/katex-version.txt`，讓匯出的 CDN 版本與目前 KaTeX 一致。
+- `web/preview/src/preview.js`：新增 `exportHtml` 訊息，將目前預覽 DOM 轉為靜態 HTML（移除複製按鈕、停用工作清單互動、移除 `data-line`）。
+- `src/MdEditor/Services/IPreviewHost.cs`、`Views/PreviewHostView.xaml.cs`：新增 `GetRenderedHtmlAsync()`，透過 WebView2 取得渲染後內容。
+- `src/MdEditor/ViewModels/MainViewModel.cs`：新增 `ExportHtmlAsync` 命令、注入 `IHtmlExportService`，並在 HTML 匯出期間避免切換檢視與處理 WebView 快捷鍵。
+- `src/MdEditor/MainWindow.xaml`：匯出選單新增「匯出 HTML...」；工具列在檢視按鈕左側新增復原／重做圖示按鈕。
+- `src/MdEditor/App.xaml.cs`：註冊 `IHtmlExportService`。
+- `tests/MdEditor.Tests/HtmlExportServiceTests.cs`：新增主題、KaTeX CDN URL、本機／遠端圖片與 CSP 測試。
+- `Directory.Build.props`、`CHANGELOG.md`、`README.md`、`RELEASE_NOTES.md`、`docs/使用指南.md`、`docs/技術文件.md`：版號更新為 1.1.0 並同步文件。
+
+### 問題與解法
+- 需要在匯出檔重現預覽中的 KaTeX、Mermaid 與程式碼高亮，而不額外打包 JavaScript → 直接從預覽 WebView2 擷取已渲染的靜態 DOM。
+- 匯出檔可能包含 `https://doc.local/...` 圖片（僅在 App 內的虛擬主機有效）→ 匯出時以 `PathSafety` 驗證並轉為 base64 data URI；遠端圖片保留網址。
+- KaTeX 字型佔用較大且版本需與 CSS 一致 → 保留本機 CSS，字型 URL 依 `katex-version.txt` 改寫為 jsDelivr CDN。
+- 復原／重做已在「編輯」選單有全域快捷鍵，工具列按鈕不重複註冊 `KeyboardAccelerator`，避免同一個快捷鍵觸發兩次。
+
+### 待辦／已知限制
+- HTML 匯出依賴 WebView2；WebView2 初始化失敗時無法匯出。
+- 遠端圖片保留網址，不是完全離線檔案；KaTeX 字型使用 CDN，離線時公式可能改用替代字型。
+- 尚未在 Windows 10 1809 與 ARM64 實機驗證 HTML 匯出顯示結果。
+
+## 2026-11-05 - v1.0.0
+
+### 目標
+完成 GitHub Releases v1.0.0 上架前全面巡查、穩定性與安全性強化、開源授權合規補齊及文件同步校對。
+
+### 變更
+- `src/MdEditor.Core/Helpers/PathSafety.cs`、`MarkdownRenderer.cs`、`DocxExportService.cs`、`MainViewModel.cs`：統一驗證相對圖片與連結路徑，阻擋 `..` 上層目錄穿越與絕對路徑存取。
+- `FileService.cs`、`web/editor/src/editor.js`、`EditorHostView.xaml.cs`、`MainViewModel.cs`：新增單檔 50 MB 上限（超過 10 MB 先詢問確認）與剪貼簿貼上圖片 20 MB 上限，並重新建置前端 bundle。
+- `DialogService.cs`、`MainWindow.xaml.cs`：加入單一 `ContentDialog` 互斥鎖與主題同步，並於對話框開啟期間攔截背景全域快捷鍵；修正視窗關閉流程（5 秒逾時與強制放行關閉），`EditorHostView.SetReadOnlyAsync` 不再等待失敗的初始化工作。
+- `MainViewModel.cs`：另存新檔指向另一個已開啟分頁時提示確認並清理重複分頁；並排檢視下匯出 PDF 不再強制切換版面。
+- `FileAssociationRegistration.cs`、`PreferencesDialog.xaml`、`AboutDialog.xaml(.cs)`、`MainWindow.xaml`、`LICENSE`：補齊 `.mdown`／`.mkd` 檔案關聯、關於對話框顯示組件與檔案版本／授權隱私說明、修正快捷鍵與圖示字型資源。
+- `Directory.Build.props`、`THIRD-PARTY-NOTICES.txt`、`scripts/publish-release.ps1`、`README.md`、`RELEASE_NOTES.md`、`CHANGELOG.md`、`CONTRIBUTING.md`、`docs/*.md`、`AGENTS.md`、`tests/MdEditor.Tests/*`：升級版號為 1.0.0、補齊第三方授權聲明、強化發佈腳本（自動讀版號、去除 `.pdb`、隨附授權檔、UTF-8 BOM）並新增對應單元測試。
+
+### 問題與解法
+- WinUI 3 同一個 `XamlRoot` 同時呼叫兩次 `ContentDialog.ShowAsync()` 會拋出 `COMException` → 於 `DialogService` 集中透過 `SemaphoreSlim` 串行化並提供 `IsDialogOpen` 防重入。
+- WebView2 初始化失敗或逾時時，`OnAppWindowClosing` 呼叫 `BeginClosingAsync`／`CancelClosingAsync` 會重複拋出例外導致視窗永遠無法關閉 → `SetReadOnlyAsync` 改為僅在 `IsReady` 時傳訊，關閉保存加上 5 秒逾時後必定放行 `Close()`。
+- Windows PowerShell 5.1 讀取無 BOM 的 UTF-8 `.ps1` 腳本會誤用系統 ANSI 編碼導致中文字串亂碼 → `scripts/publish-release.ps1` 確保以 UTF-8 with BOM 儲存並通過語法樹解析驗證。
+
+### 待辦／已知限制
+- 尚未在 Windows 10 1809 與 ARM64 實機完整驗證；公開發行檔尚未進行商業憑證程式碼簽章。
+
+## 2026-11-05 - v0.13.2
+
+### 目標
+修正頁籤切換時 App 崩潰、頁籤無法操作的問題。
+
+### 變更
+- `MainWindow.xaml`：移除 `DataTemplate` 內的 `VisualStateManager`／`StateTrigger`，改以兩個背景 `Border`、兩個標題 `TextBlock` 與底部指示條的 `Visibility` 綁定呈現作用中狀態。
+- `DocumentViewModel`：以 `ActiveVisibility`／`InactiveVisibility` 取代 `IsInactive`。
+- `Directory.Build.props`、`CHANGELOG.md`、`RELEASE_NOTES.md`：版號更新為 0.13.2。
+
+### 問題與解法
+- log 顯示 `XamlBindingSetters.Set_Microsoft_UI_Xaml_StateTrigger_IsActive` 發生 `NullReferenceException`。`x:Bind` 綁定 `DataTemplate` 內的 `StateTrigger.IsActive` 時，產生的 setter 取用到 null 的 trigger，切換頁籤即崩潰；改以穩定的 `Visibility` 綁定避開此問題。
+
+### 待辦／已知限制
+- 無。
+
+## 2026-11-05 - v0.13.1
+
+### 目標
+讓目前瀏覽的文件頁籤與其他頁籤有更明顯的視覺區別。
+
+### 變更
+- `DocumentViewModel`：新增 `IsActive`／`IsInactive`。
+- `MainWindow.xaml.cs`：`SyncTabSelection` 與頁籤切換時同步 `IsActive`，讓視覺立即回饋。
+- `MainWindow.xaml`：頁籤改用 `VisualStateManager` 切換作用中樣式（卡片背景、底部強調線、主要文字色、半粗體）；非作用中頁籤淡化；停用 `ListViewItem` 預設左側選取指示條。
+- `Directory.Build.props`、`CHANGELOG.md`、`RELEASE_NOTES.md`：版號更新為 0.13.1。
+
+### 問題與解法
+- 原本頁籤外觀由 `DataTemplate` 的 `Border` 自行繪製，會蓋住 `ListViewItem` 的選取視覺；改以 `IsActive` 驅動自訂視覺狀態。
+
+### 待辦／已知限制
+- 無。
+
+## 2026-11-05 - v0.13.0
+
+### 目標
+為預覽視窗加入實用的右鍵選單。
+
+### 變更
+- `PreviewHostView`：啟用 WebView2 右鍵選單事件，清空預設項目後建立「複製、全選、複製連結網址、開啟連結、複製圖片網址」。
+- `web/preview/src/preview.js`：在 `contextmenu` 事件記錄原始 `href`／`src` 與選取文字，供 C# 建立選單與複製使用。
+- `Directory.Build.props`、`CHANGELOG.md`、`RELEASE_NOTES.md`：版號更新為 0.13.0。
+
+### 問題與解法
+- 直接使用 WebView2 預設選單會出現「重新載入」等瀏覽器項目，可能讓預覽內容消失；改為清空後自訂項目。
+- 相對連結與圖片若使用 `ContextMenuTarget` 會取得解析後的 `app.local`／`doc.local` 網址，因此改由前端記錄原始 `href`／`src`。
+
+### 待辦／已知限制
+- 目前未提供「另存圖片」與「複製圖片」二進位內容。
+
+## 2026-11-05 - v0.12.2
+
+### 目標
+修正 App 啟動後 WebView2 無法載入、畫面持續轉圈的問題，並加入防再發處理。
+
+### 變更
+- `EditorHostView`、`PreviewHostView`：`WebViewEnvironmentProvider.GetAsync()` 與 `EnsureCoreWebView2Async()` 加上 20 秒逾時；逾時顯示「使用者資料夾可能被其他程序鎖定」。
+- `MainWindow`：關閉視窗時呼叫 `EditorHost.Close()` 與 `PreviewHost.Close()` 釋放 WebView2。
+- `Directory.Build.props`、`CHANGELOG.md`、`RELEASE_NOTES.md`、`AGENTS.md`：版號更新為 0.12.2，並記錄重建時應終止整個程序樹。
+
+### 問題與解法
+- 原因是先前的 `MdEditor.exe` 被強制終止後，`msedgewebview2.exe` 子程序仍持有 `%LocalAppData%\MdEditor\WebView2\EBWebView\lockfile`，導致新實例卡在 `EnsureCoreWebView2Async`。已終止殘留程序並確認 lockfile 解除。
+- 日後重建改用 `taskkill /F /T /IM MdEditor.exe` 終止整個程序樹，避免留下 WebView2 orphan。
+
+### 待辦／已知限制
+- 逾時時間固定 20 秒；若首次啟動較慢可能需要調整。
+
+## 2026-11-05 - v0.12.1
+
+### 目標
+依使用者回饋將編輯／預覽區與狀態列間距歸零，並移除列印功能。
+
+### 變更
+- `MainWindow.xaml`：編輯／預覽區底部間距改為 0；移除「列印...」選單項目與 `Ctrl+P` 快捷鍵。
+- `MainWindow.xaml.cs`：移除列印點擊與快捷鍵處理常式。
+- `MainViewModel`、`IPreviewHost`、`PreviewHostView`：移除列印命令與 `PrintAsync`；`IsPreviewVisible` 一併移除。
+- `web/editor/src/editor.js`、`web/preview/src/preview.js`：移除 `Ctrl+P` 轉送 `print` 的快捷鍵對應，並重新建置 bundle。
+- `Directory.Build.props`、`CHANGELOG.md`、`RELEASE_NOTES.md`：版號更新為 0.12.1。
+
+### 問題與解法
+- 保留 `PrepareForPrintAsync`、`preparePrint` 與 `printReady`，因為「匯出 PDF」仍透過 `PrintToPdfAsync` 使用列印準備流程。
+
+### 待辦／已知限制
+- 無。
+
+## 2026-11-05 - v0.12.0
+
+### 目標
+依使用者回饋調整列印可用性與對話框呈現、分割線操作、字型選單與整體間距。
+
+### 變更
+- `MainWindow.xaml`：縮小編輯／預覽區底部間距（8 → 4）；移除「檔案」選單的「關閉文件」；列印項目依 `IsPreviewVisible` 顯示。
+- `SplitterHandle`、`MainWindow`：新增雙擊偵測與 `ResetRequested`，雙擊分割線時將比例重設為 0.5。
+- `PreviewHostView`：`ShowPrintUI` 改用 `CoreWebView2PrintDialogKind.System`，列印對話框以獨立視窗呈現。
+- `MainViewModel`：新增 `IsPreviewVisible`；`PrintAsync` 僅在預覽／並排模式執行，移除暫時切換檢視模式的邏輯。
+- `PreferencesDialog`、`EditorFontCatalog`：字型下拉改為不可編輯；新增中文字型（新細明體、標楷體、微軟正黑體）並置頂。
+- `Directory.Build.props`、`CHANGELOG.md`、`RELEASE_NOTES.md`：版號更新為 0.12.0。
+
+### 問題與解法
+- 字型下拉改為不可編輯後，舊版自訂字型可能不在清單中；載入時比對不到會動態補上該項目並選取，避免顯示空白。
+- 雙擊分割線需與拖曳區分；以 `PointerPoint.Timestamp` 與位移門檻判定，避免 `PointerPressed` 設為 handled 後 `DoubleTapped` 不觸發。
+
+### 待辦／已知限制
+- 系統列印對話框不提供 Edge 的即時列印預覽。
+
+## 2026-11-05 - v0.11.0
+
+### 目標
+依使用者選擇實作高效益且改動小的體驗優化：記住分割比例、列印、編輯器字型、重開關閉分頁、選單整理與效能微調。
+
+### 變更
+- `AppSettings`、`SettingsService`：新增 `EditorSplitRatio`（0.25–0.75）並正規化；空白字型回退 `Cascadia Mono`。
+- `MainWindow`：以星號比例套用並記住編輯／預覽分割；關閉時連同視窗尺寸儲存；最近檔案選單加入簽章快取。
+- `IEditorHost`、`EditorHostView`、`web/editor/src/editor.js`、`PreferencesDialog`、`MainViewModel`：接上既有 `EditorFontFamily` 設定，新增可編輯字型下拉與即時套用。
+- `MainViewModel`、`MainWindow`：新增最近關閉文件快照堆疊（上限 10）與 `Ctrl+Shift+T` 重開；乾淨檔案直接重讀，未儲存內容以新分頁還原。
+- `IPreviewHost`、`PreviewHostView`、`MainViewModel`、`MainWindow`、`editor.js`、`preview.js`：新增 `Ctrl+P` 列印，純編輯模式會先強制渲染預覽再呼叫 `ShowPrintUI`。
+- `MainWindow.xaml`：移除「設定 (S)」選單，將「偏好設定...」移到「檔案」選單；新增「列印...」與「重新開啟關閉的文件」。
+- `MainViewModel`：同步捲動訊息去重並加上例外保護；切換文件時重設快取。
+- `SettingsAndRecentFilesTests`：新增分割比例與字型正規化測試。
+- 版號更新為 0.11.0。
+
+### 問題與解法
+- `RenderPreviewNowAsync` 原本在純編輯模式直接返回，列印無法取得最新預覽；改為可傳入 `force` 並回傳是否成功渲染。
+- 關閉分頁會刪除 draft，重開時不重用原文件識別碼，避免 WebView2 內已釋放的分頁狀態衝突。
+
+### 待辦／已知限制
+- 重開分頁堆疊僅存在本次執行期間，跨程式重啟仍由 draft 還原。
+- 大文件預覽／編輯內容的背景序列化尚未實作，待實測有明顯 UI 卡頓再處理。
+
+## 2026-11-05 - v0.10.14
+
+### 目標
+依使用者回饋調整系統選單配置，將「關於」移至視窗選單最下方。
+
+### 變更
+- `MainWindow.xaml`：從「設定 (S)」選單移除「關於」，改置於「視窗 (W)」選單最下方並以 `MenuFlyoutSeparator` 隔開。
+- `MainWindow.xaml`：移除「舒適寬度 (80%)」與「最大化」之間的分隔線。
+- `Directory.Build.props`、`CHANGELOG.md`：版號更新為 0.10.14。
+
+### 問題與解法
+- 無。
+
+### 待辦／已知限制
+- 無。
+
 ## 2026-11-05 - v0.10.13
 
 ### 目標

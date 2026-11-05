@@ -15,6 +15,49 @@ public sealed class SettingsAndRecentFilesTests
         Assert.Equal(1120, settings.WindowWidth);
         Assert.Equal(720, settings.WindowHeight);
         Assert.Equal("Normal", settings.WindowState);
+        Assert.Equal(0.5, settings.EditorSplitRatio);
+        Assert.Equal("Cascadia Mono", settings.EditorFontFamily);
+    }
+
+    [Fact]
+    public async Task Settings_SplitRatio_RoundTrips()
+    {
+        using var temp = new TempDirectory();
+        var first = new SettingsService(temp.DirectoryPath);
+        await first.LoadAsync();
+        first.Settings.EditorSplitRatio = 0.62;
+        await first.SaveAsync();
+
+        var second = new SettingsService(temp.DirectoryPath);
+        await second.LoadAsync();
+
+        Assert.Equal(0.62, second.Settings.EditorSplitRatio, 3);
+    }
+
+    [Fact]
+    public async Task Settings_InvalidSplitRatio_IsClamped()
+    {
+        using var temp = new TempDirectory();
+        var settingsPath = Path.Combine(temp.DirectoryPath, "settings.json");
+        await File.WriteAllTextAsync(settingsPath, """{"EditorSplitRatio":0.1}""");
+
+        var settings = new SettingsService(temp.DirectoryPath);
+        await settings.LoadAsync();
+
+        Assert.Equal(0.25, settings.Settings.EditorSplitRatio, 3);
+    }
+
+    [Fact]
+    public async Task Settings_BlankEditorFontFamily_FallsBackToDefault()
+    {
+        using var temp = new TempDirectory();
+        var settingsPath = Path.Combine(temp.DirectoryPath, "settings.json");
+        await File.WriteAllTextAsync(settingsPath, """{"EditorFontFamily":"  "}""");
+
+        var settings = new SettingsService(temp.DirectoryPath);
+        await settings.LoadAsync();
+
+        Assert.Equal("Cascadia Mono", settings.Settings.EditorFontFamily);
     }
 
     [Fact]

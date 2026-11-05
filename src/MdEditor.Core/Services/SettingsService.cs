@@ -121,7 +121,11 @@ public sealed class SettingsService : ISettingsService
             settings.WindowState = "Normal";
         }
 
+        settings.EditorFontFamily = string.IsNullOrWhiteSpace(settings.EditorFontFamily)
+            ? "Cascadia Mono"
+            : settings.EditorFontFamily.Trim();
         settings.EditorFontSize = Math.Clamp(settings.EditorFontSize, 10, 28);
+        settings.EditorSplitRatio = Math.Clamp(settings.EditorSplitRatio, 0.25, 0.75);
         settings.RecentFilesLimit = Math.Clamp(settings.RecentFilesLimit, 5, 100);
         settings.WindowWidth = Math.Clamp(settings.WindowWidth, 800, 10000);
         settings.WindowHeight = Math.Clamp(settings.WindowHeight, 500, 10000);

@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using Markdig;
+using VibeCode.MdEditor.Core.Helpers;
 
 namespace VibeCode.MdEditor.Core.Services;
 
@@ -36,6 +37,8 @@ public sealed partial class MarkdownRenderer : IMarkdownRenderer
             return html;
         }
 
+        var fullDocumentDirectory = Path.GetFullPath(documentDirectory);
+
         return ImageTagRegex().Replace(html, imageTag =>
             ImageSourceRegex().Replace(imageTag.Value, source =>
             {
@@ -45,8 +48,10 @@ public sealed partial class MarkdownRenderer : IMarkdownRenderer
                     return source.Value;
                 }
 
-                var mapped = "https://doc.local/" + EncodeRelativeUrl(url);
-                return source.Groups["prefix"].Value + mapped + "\"";
+                var mapped = TryMapRelativeUrl(url, fullDocumentDirectory);
+                return mapped is null
+                    ? source.Groups["prefix"].Value + "#\""
+                    : source.Groups["prefix"].Value + mapped + "\"";
             }));
     }
 
@@ -80,9 +85,9 @@ public sealed partial class MarkdownRenderer : IMarkdownRenderer
                trimmed.StartsWith("file:", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static string EncodeRelativeUrl(string url)
+    private static string? TryMapRelativeUrl(string url, string fullDocumentDirectory)
     {
-        var value = url.Replace('\\', '/');
+        var value = url;
         var query = string.Empty;
         var fragment = string.Empty;
 
@@ -100,19 +105,25 @@ public sealed partial class MarkdownRenderer : IMarkdownRenderer
             value = value[..queryIndex];
         }
 
-        var segments = value.Split('/');
-        for (var i = 0; i < segments.Length; i++)
+        var resolvedPath = PathSafety.TryResolveRelativePathWithinDirectory(fullDocumentDirectory, value);
+        if (resolvedPath is null)
         {
-            var segment = segments[i];
-            if (segment is "." or ".." or "" || segment.Contains('%'))
-            {
-                continue;
-            }
-
-            segments[i] = Uri.EscapeDataString(segment);
+            return null;
         }
 
-        return string.Join('/', segments) + query + fragment;
+        var relativePath = Path.GetRelativePath(fullDocumentDirectory, resolvedPath);
+        if (string.IsNullOrWhiteSpace(relativePath) || relativePath == ".")
+        {
+            return null;
+        }
+
+        var segments = relativePath.Replace('\\', '/').Split('/', StringSplitOptions.RemoveEmptyEntries);
+        for (var i = 0; i < segments.Length; i++)
+        {
+            segments[i] = Uri.EscapeDataString(segments[i]);
+        }
+
+        return "https://doc.local/" + string.Join('/', segments) + query + fragment;
     }
 
     [GeneratedRegex(@"<img\b[^>]*>", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]

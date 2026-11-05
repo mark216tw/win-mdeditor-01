@@ -16,6 +16,8 @@ namespace VibeCode.MdEditor.ViewModels;
 
 public sealed partial class MainViewModel : ObservableObject, IDisposable
 {
+    private const int MaxClosedDocuments = 10;
+
     private readonly IFileService _fileService;
     private readonly IMarkdownRenderer _markdownRenderer;
     private readonly IRecentFilesService _recentFiles;
@@ -23,13 +25,18 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private readonly ISettingsService _settings;
     private readonly IFileWatcherService _fileWatcher;
     private readonly IDocxExportService _docxExport;
+    private readonly IHtmlExportService _htmlExport;
     private readonly IDialogService _dialogs;
     private readonly IUiDispatcher _dispatcher;
     private readonly ILogger<MainViewModel> _logger;
     private readonly Dictionary<string, DateTimeOffset> _watcherSuppression = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _pendingRestorePaths = new(StringComparer.OrdinalIgnoreCase);
+    private readonly List<ClosedDocumentSnapshot> _closedDocuments = [];
     private readonly SemaphoreSlim _documentSwitchLock = new(1, 1);
     private readonly UISettings _uiSettings = new();
+
+    private double _lastSyncedScrollPercent = double.NaN;
+    private double _lastSyncedScrollLine = double.NaN;
 
     private IEditorHost? _editor;
     private IPreviewHost? _preview;
@@ -46,6 +53,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private bool _isLoadingDocument;
     private bool _isRestoringSession;
     private bool _isClosing;
+    private bool _isExportingPdf;
+    private bool _isExportingHtml;
     private bool _activeDocumentTextStale;
     private int _untitledCounter;
     private string _currentTheme = "light";
@@ -59,6 +68,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         ISettingsService settings,
         IFileWatcherService fileWatcher,
         IDocxExportService docxExport,
+        IHtmlExportService htmlExport,
         IDialogService dialogs,
         IUiDispatcher dispatcher,
         ILogger<MainViewModel> logger)
@@ -70,6 +80,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         _settings = settings;
         _fileWatcher = fileWatcher;
         _docxExport = docxExport;
+        _htmlExport = htmlExport;
         _dialogs = dialogs;
         _dispatcher = dispatcher;
         _logger = logger;
@@ -163,6 +174,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     public bool WordWrapEnabled => _settings.Settings.WordWrap;
 
+    public string EditorFontFamily => _settings.Settings.EditorFontFamily;
+
     public double EditorFontSize => _settings.Settings.EditorFontSize;
 
     public event EventHandler<AppThemeDefinition>? ThemeChanged;
@@ -208,6 +221,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
         await editor.SetIncludeTextInChangeAsync(ViewMode != EditorViewMode.Edit);
         await editor.SetWordWrapAsync(_settings.Settings.WordWrap);
+        await editor.SetFontFamilyAsync(_settings.Settings.EditorFontFamily);
         await editor.SetFontSizeAsync(_settings.Settings.EditorFontSize);
         await preview.SetFontSizeAsync(_settings.Settings.EditorFontSize);
         await ApplyThemeAsync(_settings.Settings.Theme, save: false);
@@ -266,18 +280,25 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         return _settings.Settings.WindowState;
     }
 
+    public double GetSavedSplitRatio()
+    {
+        return _settings.Settings.EditorSplitRatio;
+    }
+
     public async Task SaveWindowSettingsAsync(
         double width,
         double height,
         string windowState,
         double? left,
-        double? top)
+        double? top,
+        double editorSplitRatio)
     {
         _settings.Settings.WindowWidth = width;
         _settings.Settings.WindowHeight = height;
         _settings.Settings.WindowState = windowState;
         _settings.Settings.WindowLeft = left;
         _settings.Settings.WindowTop = top;
+        _settings.Settings.EditorSplitRatio = Math.Clamp(editorSplitRatio, 0.25, 0.75);
         await _settings.SaveAsync();
     }
 
@@ -315,11 +336,15 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         string theme,
         bool syncScrolling,
         bool wordWrap,
+        string fontFamily,
         double fontSize)
     {
         _settings.Settings.Theme = theme;
         _settings.Settings.SyncScrolling = syncScrolling;
         _settings.Settings.WordWrap = wordWrap;
+        _settings.Settings.EditorFontFamily = string.IsNullOrWhiteSpace(fontFamily)
+            ? "Cascadia Mono"
+            : fontFamily.Trim();
         _settings.Settings.EditorFontSize = Math.Clamp(fontSize, 10, 28);
         await _settings.SaveAsync();
         await ApplyThemeAsync(theme, save: false);
@@ -327,6 +352,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         if (_editor is not null)
         {
             await _editor.SetWordWrapAsync(_settings.Settings.WordWrap);
+            await _editor.SetFontFamilyAsync(_settings.Settings.EditorFontFamily);
             await _editor.SetFontSizeAsync(_settings.Settings.EditorFontSize);
         }
 
@@ -338,6 +364,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(CurrentTheme));
         OnPropertyChanged(nameof(SyncScrollingEnabled));
         OnPropertyChanged(nameof(WordWrapEnabled));
+        OnPropertyChanged(nameof(EditorFontFamily));
         OnPropertyChanged(nameof(EditorFontSize));
     }
 
@@ -512,6 +539,41 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
+        FileInfo fileInfo;
+        try
+        {
+            fileInfo = new FileInfo(fullPath);
+        }
+        catch (Exception ex)
+        {
+            ShowError("無法開啟檔案", ex.Message);
+            return;
+        }
+
+        if (fileInfo.Exists)
+        {
+            if (fileInfo.Length > FileService.MaxSupportedFileBytes)
+            {
+                ShowError(
+                    "檔案過大",
+                    $"檔案大小（{fileInfo.Length / (1024d * 1024d):F1} MB）超過 {FileService.MaxSupportedFileBytes / (1024 * 1024)} MB 上限，無法開啟。");
+                return;
+            }
+
+            if (fileInfo.Length > FileService.LargeFileWarningBytes)
+            {
+                var confirmed = await _dialogs.ConfirmAsync(
+                    "檔案較大",
+                    $"「{Path.GetFileName(fullPath)}」大小為 {fileInfo.Length / (1024d * 1024d):F1} MB，開啟與即時預覽可能較慢。確定要繼續開啟嗎？",
+                    "繼續開啟",
+                    "取消");
+                if (!confirmed)
+                {
+                    return;
+                }
+            }
+        }
+
         SetBusy(true, "正在開啟檔案...");
 
         try
@@ -621,6 +683,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             }
         }
 
+        if (ReferenceEquals(document, ActiveDocument))
+        {
+            await FlushEditorAsync();
+        }
+
+        RememberClosedDocument(document);
         var wasActive = ReferenceEquals(document, ActiveDocument);
 
         if (document.FilePath is not null)
@@ -666,6 +734,80 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         }
 
         await SaveSessionDraftsAsync();
+    }
+
+    [RelayCommand]
+    private async Task ReopenClosedDocumentAsync()
+    {
+        while (_closedDocuments.Count > 0)
+        {
+            var snapshot = _closedDocuments[^1];
+            _closedDocuments.RemoveAt(_closedDocuments.Count - 1);
+
+            if (!snapshot.IsDirty && snapshot.FilePath is not null)
+            {
+                if (!File.Exists(snapshot.FilePath))
+                {
+                    continue;
+                }
+
+                await OpenFileAsync(snapshot.FilePath);
+                return;
+            }
+
+            if (snapshot.FilePath is not null)
+            {
+                var existing = Documents.FirstOrDefault(document =>
+                    document.FilePath is not null && PathsEqual(document.FilePath, snapshot.FilePath));
+                if (existing is not null)
+                {
+                    await SelectDocumentAsync(existing);
+                    return;
+                }
+            }
+
+            var document = new DocumentViewModel(snapshot.Title)
+            {
+                FilePath = snapshot.FilePath,
+                Text = snapshot.Text,
+                EncodingName = snapshot.EncodingName,
+                CodePage = snapshot.CodePage,
+                HasBom = snapshot.HasBom,
+                LineEnding = snapshot.LineEnding,
+                IsDirty = snapshot.IsDirty || snapshot.Text.Length > 0,
+            };
+
+            Documents.Add(document);
+            await SelectDocumentAsync(document);
+
+            if (document.FilePath is not null && File.Exists(document.FilePath))
+            {
+                _fileWatcher.Watch(document.FilePath);
+            }
+
+            return;
+        }
+
+        StatusText = "沒有可重新開啟的文件。";
+    }
+
+    private void RememberClosedDocument(DocumentViewModel document)
+    {
+        var keepText = document.IsDirty || string.IsNullOrEmpty(document.FilePath);
+        _closedDocuments.Add(new ClosedDocumentSnapshot(
+            document.Title,
+            document.FilePath,
+            keepText ? document.Text : string.Empty,
+            document.EncodingName,
+            document.CodePage,
+            document.HasBom,
+            document.LineEnding,
+            document.IsDirty));
+
+        if (_closedDocuments.Count > MaxClosedDocuments)
+        {
+            _closedDocuments.RemoveAt(0);
+        }
     }
 
     [RelayCommand]
@@ -735,14 +877,16 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private async Task ExportPdfAsync()
     {
         var document = ActiveDocument;
-        if (document is null || _preview is null)
+        if (document is null || _preview is null || _isExportingPdf || _isExportingHtml)
         {
             return;
         }
 
+        _isExportingPdf = true;
         SetBusy(true, "正在匯出 PDF...");
 
         var previousViewMode = ViewMode;
+        var switchedViewMode = false;
 
         try
         {
@@ -755,9 +899,14 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                 return;
             }
 
-            ViewMode = EditorViewMode.Preview;
+            if (ViewMode == EditorViewMode.Edit)
+            {
+                ViewMode = EditorViewMode.Preview;
+                switchedViewMode = true;
+            }
+
             await _preview.InitializeAsync();
-            await RenderPreviewNowAsync(document);
+            await RenderPreviewNowAsync(document, force: true);
             await _preview.PrintToPdfAsync(path);
             StatusText = $"已匯出 PDF：{Path.GetFileName(path)}";
         }
@@ -767,7 +916,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         }
         finally
         {
-            ViewMode = previousViewMode;
+            if (switchedViewMode)
+            {
+                ViewMode = previousViewMode;
+            }
+
+            _isExportingPdf = false;
             SetBusy(false, string.Empty);
         }
     }
@@ -806,6 +960,59 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         }
         finally
         {
+            SetBusy(false, string.Empty);
+        }
+    }
+
+    [RelayCommand]
+    private async Task ExportHtmlAsync()
+    {
+        var document = ActiveDocument;
+        if (document is null || _preview is null || _isExportingHtml || _isExportingPdf)
+        {
+            return;
+        }
+
+        _isExportingHtml = true;
+        SetBusy(true, "正在匯出 HTML...");
+
+        try
+        {
+            await FlushEditorAsync();
+            _previewCancellation?.Cancel();
+
+            var suggestedName = Path.GetFileNameWithoutExtension(document.Title);
+            var path = await _dialogs.PickSaveFileAsync(suggestedName, "HTML 檔案", ".html");
+            if (string.IsNullOrEmpty(path))
+            {
+                return;
+            }
+
+            var rendered = await RenderPreviewNowAsync(document, force: true);
+            if (!rendered)
+            {
+                throw new InvalidOperationException("預覽尚未就緒，無法匯出 HTML。");
+            }
+
+            var contentHtml = await _preview.GetRenderedHtmlAsync();
+            var directory = string.IsNullOrEmpty(document.FileDirectory) ? null : document.FileDirectory;
+
+            await _htmlExport.ExportAsync(
+                contentHtml,
+                document.Title,
+                _currentTheme,
+                directory,
+                path);
+
+            StatusText = $"已匯出 HTML：{Path.GetFileName(path)}";
+        }
+        catch (Exception ex)
+        {
+            ShowError("匯出 HTML 失敗", ex.Message);
+        }
+        finally
+        {
+            _isExportingHtml = false;
             SetBusy(false, string.Empty);
         }
     }
@@ -905,7 +1112,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private async Task SetViewModeAsync(string? mode)
     {
-        if (!Enum.TryParse<EditorViewMode>(mode, ignoreCase: true, out var viewMode))
+        if (_isExportingPdf || _isExportingHtml || !Enum.TryParse<EditorViewMode>(mode, ignoreCase: true, out var viewMode))
         {
             return;
         }
@@ -992,11 +1199,44 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             }
         }
 
+        string fullPath;
+        try
+        {
+            fullPath = Path.GetFullPath(path);
+        }
+        catch (Exception ex)
+        {
+            ShowError("無法儲存檔案", ex.Message);
+            return false;
+        }
+
+        var duplicateTab = Documents.FirstOrDefault(item =>
+            !ReferenceEquals(item, document) &&
+            item.FilePath is not null &&
+            PathsEqual(item.FilePath, fullPath));
+
+        if (duplicateTab is not null)
+        {
+            var prompt = duplicateTab.IsDirty
+                ? $"「{duplicateTab.Title}」已在另一個分頁開啟且有未儲存變更。覆蓋儲存將捨棄該分頁的變更並關閉該分頁，確定要繼續嗎？"
+                : $"「{duplicateTab.Title}」已在另一個分頁開啟。覆蓋儲存將一併關閉該分頁，確定要繼續嗎？";
+
+            var confirmed = await _dialogs.ConfirmAsync(
+                "目標檔案已在分頁開啟",
+                prompt,
+                "覆蓋並關閉重複分頁",
+                "取消");
+
+            if (!confirmed)
+            {
+                return false;
+            }
+        }
+
         SetBusy(true, "正在儲存...");
 
         try
         {
-            var fullPath = Path.GetFullPath(path);
             _watcherSuppression[fullPath] = DateTimeOffset.UtcNow.AddSeconds(3);
 
             var stamp = await _fileService.SaveAsync(
@@ -1006,6 +1246,33 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                 document.CodePage,
                 document.HasBom,
                 document.LineEnding);
+
+            if (duplicateTab is not null && Documents.Contains(duplicateTab))
+            {
+                _fileWatcher.Unwatch(fullPath);
+                Documents.Remove(duplicateTab);
+
+                if (_editor is not null)
+                {
+                    try
+                    {
+                        await _editor.DisposeDocumentAsync(duplicateTab.Id);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "釋放重複分頁編輯器快取失敗：{DocumentId}", duplicateTab.Id);
+                    }
+                }
+
+                try
+                {
+                    await _sessionDrafts.DeleteDocumentAsync(duplicateTab.Id);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "刪除重複分頁暫存失敗：{DocumentId}", duplicateTab.Id);
+                }
+            }
 
             var oldPath = document.FilePath;
             document.FilePath = fullPath;
@@ -1098,7 +1365,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     private async Task FlushEditorAsync()
     {
-        if (_editor is null || ActiveDocument is null || _isLoadingDocument)
+        if (_editor is null || !_editor.IsReady || ActiveDocument is null || _isLoadingDocument)
         {
             return;
         }
@@ -1175,11 +1442,11 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         await RenderPreviewNowAsync(document);
     }
 
-    private async Task RenderPreviewNowAsync(DocumentViewModel? document)
+    private async Task<bool> RenderPreviewNowAsync(DocumentViewModel? document, bool force = false)
     {
-        if (document is null || _preview is null || ViewMode == EditorViewMode.Edit)
+        if (document is null || _preview is null || (!force && ViewMode == EditorViewMode.Edit))
         {
-            return;
+            return false;
         }
 
         var generation = Interlocked.Increment(ref _previewRenderGeneration);
@@ -1195,7 +1462,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                 document.Revision != revision ||
                 generation != Volatile.Read(ref _previewRenderGeneration))
             {
-                return;
+                return false;
             }
 
             await _preview.SetDocumentFolderAsync(directory);
@@ -1203,7 +1470,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                 document.Revision != revision ||
                 generation != Volatile.Read(ref _previewRenderGeneration))
             {
-                return;
+                return false;
             }
 
             await _preview.RenderAsync(
@@ -1219,7 +1486,10 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                 _lastPreviewDocumentId = document.Id;
                 _lastPreviewText = text;
                 _lastPreviewDirectory = directory;
+                return true;
             }
+
+            return false;
         }
         catch (Exception ex)
         {
@@ -1227,6 +1497,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             {
                 ShowError("預覽失敗", ex.Message);
             }
+
+            return false;
         }
     }
 
@@ -1273,6 +1545,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     partial void OnActiveDocumentChanged(DocumentViewModel? oldValue, DocumentViewModel? newValue)
     {
+        _lastSyncedScrollPercent = double.NaN;
+        _lastSyncedScrollLine = double.NaN;
+
         if (oldValue is not null)
         {
             oldValue.PropertyChanged -= OnDocumentPropertyChanged;
@@ -1408,12 +1683,35 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
-        _ = _preview.SetScrollPercentAsync(e.Percent, e.Line);
+        if (Math.Abs(e.Percent - _lastSyncedScrollPercent) < 0.0005 &&
+            Math.Abs(e.Line - _lastSyncedScrollLine) < 0.05)
+        {
+            return;
+        }
+
+        _lastSyncedScrollPercent = e.Percent;
+        _lastSyncedScrollLine = e.Line;
+        _ = SyncPreviewScrollAsync(e.Percent, e.Line);
+    }
+
+    private async Task SyncPreviewScrollAsync(double percent, double line)
+    {
+        try
+        {
+            if (_preview is not null)
+            {
+                await _preview.SetScrollPercentAsync(percent, line);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "同步預覽捲動失敗。");
+        }
     }
 
     private void OnShortcutRequested(object? sender, string name)
     {
-        if (_isClosing)
+        if (_isClosing || _isExportingPdf || _isExportingHtml)
         {
             return;
         }
@@ -1446,6 +1744,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                 break;
             case "preferences":
                 PreferencesRequested?.Invoke(this, EventArgs.Empty);
+                break;
+            case "reopenClosed":
+                _ = ReopenClosedDocumentAsync();
                 break;
             case "zoomIn":
                 _ = AdjustFontSizeAsync(1);
@@ -1504,6 +1805,14 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
+        if (e.IsTooLarge)
+        {
+            ShowError(
+                "無法貼上圖片",
+                $"剪貼簿圖片超過 {FileService.MaxPastedImageBytes / (1024 * 1024)} MB 上限。");
+            return;
+        }
+
         if (string.IsNullOrWhiteSpace(document.FileDirectory))
         {
             ShowError("無法貼上圖片", "請先儲存目前文件（Ctrl+S），再貼上剪貼簿圖片。");
@@ -1550,18 +1859,14 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                 return;
             }
 
-            var pathPart = href.Split('#')[0];
+            var pathPart = href.Split('#')[0].Split('?')[0];
             if (string.IsNullOrWhiteSpace(pathPart))
             {
                 return;
             }
 
-            var directory = Path.GetFullPath(document.FileDirectory);
-            var path = Path.GetFullPath(Path.Combine(
-                directory,
-                Uri.UnescapeDataString(pathPart)));
-
-            if (!IsPathWithinDirectory(path, directory))
+            var path = PathSafety.TryResolveRelativePathWithinDirectory(document.FileDirectory, pathPart);
+            if (path is null)
             {
                 ShowError("無法開啟連結", "連結指向文件資料夾以外的位置。");
                 return;
@@ -1789,17 +2094,6 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             Path.GetFullPath(left),
             Path.GetFullPath(right),
             StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static bool IsPathWithinDirectory(string path, string directory)
-    {
-        var trimmedDirectory = Path.TrimEndingDirectorySeparator(directory);
-        var prefix = Path.EndsInDirectorySeparator(trimmedDirectory)
-            ? trimmedDirectory
-            : trimmedDirectory + Path.DirectorySeparatorChar;
-
-        return string.Equals(path, trimmedDirectory, StringComparison.OrdinalIgnoreCase) ||
-               path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
     }
 
     public async Task PersistSessionAsync()
@@ -2232,4 +2526,14 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         _fontSizeSaveCancellation?.Dispose();
         _documentSwitchLock.Dispose();
     }
+
+    private sealed record ClosedDocumentSnapshot(
+        string Title,
+        string? FilePath,
+        string Text,
+        string EncodingName,
+        int CodePage,
+        bool HasBom,
+        string LineEnding,
+        bool IsDirty);
 }

@@ -11,6 +11,7 @@ public sealed partial class PreferencesDialog : ContentDialog
         bool syncScrolling,
         bool wordWrap,
         double fontSize,
+        string editorFontFamily,
         bool fileAssociationRegistered)
     {
         InitializeComponent();
@@ -36,6 +37,32 @@ public sealed partial class PreferencesDialog : ContentDialog
         }
 
         ThemeComboBox.SelectedIndex = selectedIndex;
+
+        foreach (var option in EditorFontCatalog.All)
+        {
+            FontFamilyComboBox.Items.Add(new ComboBoxItem
+            {
+                Content = option.DisplayName,
+                Tag = option.FamilyName,
+            });
+        }
+
+        var selectedFont = string.IsNullOrWhiteSpace(editorFontFamily)
+            ? "Cascadia Mono"
+            : editorFontFamily.Trim();
+        var fontIndex = FindFontFamilyIndex(selectedFont);
+        if (fontIndex < 0)
+        {
+            FontFamilyComboBox.Items.Add(new ComboBoxItem
+            {
+                Content = selectedFont,
+                Tag = selectedFont,
+            });
+            fontIndex = FontFamilyComboBox.Items.Count - 1;
+        }
+
+        FontFamilyComboBox.SelectedIndex = fontIndex;
+
         SyncScrollingToggle.IsOn = syncScrolling;
         WordWrapToggle.IsOn = wordWrap;
 
@@ -55,12 +82,29 @@ public sealed partial class PreferencesDialog : ContentDialog
 
     public event EventHandler? OpenDefaultAppsRequested;
 
+    private int FindFontFamilyIndex(string family)
+    {
+        for (var index = 0; index < FontFamilyComboBox.Items.Count; index++)
+        {
+            if (FontFamilyComboBox.Items[index] is ComboBoxItem { Tag: string value } &&
+                string.Equals(value, family, StringComparison.OrdinalIgnoreCase))
+            {
+                return index;
+            }
+        }
+
+        return -1;
+    }
+
     public string SelectedTheme =>
         (ThemeComboBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "System";
 
     public bool SyncScrollingEnabled => SyncScrollingToggle.IsOn;
 
     public bool WordWrapEnabled => WordWrapToggle.IsOn;
+
+    public string SelectedFontFamily =>
+        (FontFamilyComboBox.SelectedItem as ComboBoxItem)?.Tag as string ?? "Cascadia Mono";
 
     public double SelectedFontSize =>
         (FontSizeComboBox.SelectedItem as ComboBoxItem)?.Tag is int size ? size : 14;

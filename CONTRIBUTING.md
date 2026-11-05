@@ -65,7 +65,7 @@ dotnet format MdEditor.sln --verify-no-changes
 請使用 GitHub Issues，並盡量提供：
 
 - 作業系統版本與架構（x64／ARM64）
-- App 版本（「設定 → 關於」）
+- App 版本（「視窗 → 關於」）
 - 重現步驟與預期結果
 - 記錄檔：`%LocalAppData%\MdEditor\logs\log-yyyyMMdd.txt`
 

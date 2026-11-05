@@ -4,12 +4,14 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.Web.WebView2.Core;
 using VibeCode.MdEditor.Models;
 using VibeCode.MdEditor.Services;
+using Windows.ApplicationModel.DataTransfer;
 
 namespace VibeCode.MdEditor.Views;
 
 public sealed partial class PreviewHostView : UserControl, IPreviewHost
 {
     private (string Id, TaskCompletionSource Completion)? _pendingRender;
+    private (string Id, TaskCompletionSource<string> Completion)? _pendingExportHtml;
     private TaskCompletionSource? _pendingPrint;
     private Task? _initializeTask;
     private TaskCompletionSource? _readySource;
@@ -85,6 +87,35 @@ public sealed partial class PreviewHostView : UserControl, IPreviewHost
         }
     }
 
+    public async Task<string> GetRenderedHtmlAsync()
+    {
+        await InitializeAsync();
+
+        var id = Guid.NewGuid().ToString("N");
+        var completion = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var previous = _pendingExportHtml;
+        _pendingExportHtml = (id, completion);
+        previous?.Completion.TrySetCanceled();
+
+        Post(new
+        {
+            type = "exportHtml",
+            id,
+        });
+
+        try
+        {
+            return await completion.Task.WaitAsync(TimeSpan.FromSeconds(30));
+        }
+        finally
+        {
+            if (_pendingExportHtml?.Completion == completion)
+            {
+                _pendingExportHtml = null;
+            }
+        }
+    }
+
     public async Task SetThemeAsync(string theme)
     {
         _theme = AppThemeCatalog.FromWebTheme(theme).WebTheme;
@@ -133,6 +164,16 @@ public sealed partial class PreviewHostView : UserControl, IPreviewHost
             percent,
             line,
         });
+    }
+
+    public void Close()
+    {
+        _pendingExportHtml?.Completion.TrySetCanceled();
+
+        if (WebView.CoreWebView2 is not null)
+        {
+            WebView.Close();
+        }
     }
 
     public async Task PrintToPdfAsync(string outputPath)
@@ -189,12 +230,14 @@ public sealed partial class PreviewHostView : UserControl, IPreviewHost
         {
             _readySource = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             await WaitForLoadedAsync();
-            var environment = await WebViewEnvironmentProvider.GetAsync();
-            await WebView.EnsureCoreWebView2Async(environment);
+            var environment = await WebViewEnvironmentProvider.GetAsync()
+                .WaitAsync(TimeSpan.FromSeconds(20));
+            await WebView.EnsureCoreWebView2Async(environment).AsTask()
+                .WaitAsync(TimeSpan.FromSeconds(20));
 
             var core = WebView.CoreWebView2;
             core.Settings.AreDevToolsEnabled = false;
-            core.Settings.AreDefaultContextMenusEnabled = false;
+            core.Settings.AreDefaultContextMenusEnabled = true;
             core.Settings.AreBrowserAcceleratorKeysEnabled = false;
             core.Settings.IsStatusBarEnabled = false;
             core.Settings.IsZoomControlEnabled = false;
@@ -202,6 +245,7 @@ public sealed partial class PreviewHostView : UserControl, IPreviewHost
             SetBackground(_theme);
             core.WebMessageReceived += OnWebMessageReceived;
             core.NavigationStarting += OnNavigationStarting;
+            core.ContextMenuRequested += OnContextMenuRequested;
 
             var assets = Path.Combine(AppContext.BaseDirectory, "Assets");
             core.SetVirtualHostNameToFolderMapping(
@@ -219,8 +263,10 @@ public sealed partial class PreviewHostView : UserControl, IPreviewHost
         catch (Exception ex)
         {
             ShowError(
-                "請確認已安裝 Microsoft Edge WebView2 Runtime，且應用程式 Assets 資料夾完整。\n\n" +
-                ex.Message);
+                ex is TimeoutException
+                    ? "WebView2 初始化逾時。使用者資料夾可能被其他程序鎖定，請關閉殘留的 msedgewebview2.exe 後再試。"
+                    : "請確認已安裝 Microsoft Edge WebView2 Runtime，且應用程式 Assets 資料夾完整。\n\n" +
+                      ex.Message);
             throw new InvalidOperationException("預覽初始化失敗。", ex);
         }
     }
@@ -313,6 +359,19 @@ public sealed partial class PreviewHostView : UserControl, IPreviewHost
                         break;
                     }
 
+                case "exportHtml":
+                    {
+                        var id = GetString(root, "id");
+                        var pending = _pendingExportHtml;
+                        if (pending is not null &&
+                            string.Equals(pending.Value.Id, id, StringComparison.Ordinal))
+                        {
+                            pending.Value.Completion.TrySetResult(GetString(root, "html"));
+                        }
+
+                        break;
+                    }
+
                 case "printReady":
                     _pendingPrint?.TrySetResult();
                     break;
@@ -342,6 +401,152 @@ public sealed partial class PreviewHostView : UserControl, IPreviewHost
             ShowError("預覽訊息格式錯誤。\n\n" + ex.Message);
         }
     }
+
+    private async void OnContextMenuRequested(
+        object? sender,
+        CoreWebView2ContextMenuRequestedEventArgs args)
+    {
+        var deferral = args.GetDeferral();
+        try
+        {
+            var core = WebView.CoreWebView2;
+            if (core is null)
+            {
+                args.Handled = true;
+                return;
+            }
+
+            var target = await ReadContextMenuTargetAsync(core, args.ContextMenuTarget);
+            var environment = core.Environment;
+
+            for (var index = args.MenuItems.Count - 1; index >= 0; index--)
+            {
+                args.MenuItems.RemoveAt(index);
+            }
+
+            if (!string.IsNullOrWhiteSpace(target.Selection))
+            {
+                var text = target.Selection;
+                AddMenuItem(args, environment, "複製", () => CopyText(text));
+            }
+
+            AddMenuItem(
+                args,
+                environment,
+                "全選",
+                () => _ = core.ExecuteScriptAsync(
+                    "(() => { const content = document.getElementById('content'); " +
+                    "if (!content) return; const range = document.createRange(); " +
+                    "range.selectNodeContents(content); const selection = window.getSelection(); " +
+                    "if (!selection) return; selection.removeAllRanges(); selection.addRange(range); })();"));
+
+            if (!string.IsNullOrWhiteSpace(target.Link))
+            {
+                var link = target.Link;
+                AddSeparator(args, environment);
+                AddMenuItem(args, environment, "複製連結網址", () => CopyText(link));
+                AddMenuItem(args, environment, "開啟連結", () => LinkRequested?.Invoke(this, link));
+            }
+
+            if (!string.IsNullOrWhiteSpace(target.Image))
+            {
+                var image = target.Image;
+                AddSeparator(args, environment);
+                AddMenuItem(args, environment, "複製圖片網址", () => CopyText(image));
+            }
+
+            if (args.MenuItems.Count == 0)
+            {
+                args.Handled = true;
+            }
+        }
+        catch (Exception)
+        {
+            args.Handled = true;
+        }
+        finally
+        {
+            deferral.Complete();
+        }
+    }
+
+    private static async Task<ContextMenuTarget> ReadContextMenuTargetAsync(
+        CoreWebView2 core,
+        CoreWebView2ContextMenuTarget fallback)
+    {
+        try
+        {
+            var json = await core.ExecuteScriptAsync("window.__mdeditorContextTarget ?? null");
+            if (!string.IsNullOrWhiteSpace(json) &&
+                !string.Equals(json, "null", StringComparison.Ordinal))
+            {
+                using var document = JsonDocument.Parse(json);
+                var root = document.RootElement;
+                return new ContextMenuTarget(
+                    GetNullableString(root, "selection"),
+                    GetNullableString(root, "link"),
+                    GetNullableString(root, "image"));
+            }
+        }
+        catch (Exception)
+        {
+        }
+
+        return new ContextMenuTarget(
+            fallback.HasSelection ? fallback.SelectionText : null,
+            fallback.HasLinkUri ? fallback.LinkUri : null,
+            fallback.HasSourceUri ? fallback.SourceUri : null);
+    }
+
+    private static void AddMenuItem(
+        CoreWebView2ContextMenuRequestedEventArgs args,
+        CoreWebView2Environment environment,
+        string label,
+        Action action)
+    {
+        var item = environment.CreateContextMenuItem(
+            label,
+            null,
+            CoreWebView2ContextMenuItemKind.Command);
+        item.CustomItemSelected += (_, _) => action();
+        args.MenuItems.Add(item);
+    }
+
+    private static void AddSeparator(
+        CoreWebView2ContextMenuRequestedEventArgs args,
+        CoreWebView2Environment environment)
+    {
+        args.MenuItems.Add(environment.CreateContextMenuItem(
+            string.Empty,
+            null,
+            CoreWebView2ContextMenuItemKind.Separator));
+    }
+
+    private static void CopyText(string text)
+    {
+        try
+        {
+            var package = new DataPackage();
+            package.SetText(text);
+            Clipboard.SetContent(package);
+        }
+        catch (Exception)
+        {
+        }
+    }
+
+    private static string? GetNullableString(JsonElement element, string name)
+    {
+        return element.TryGetProperty(name, out var property) &&
+               property.ValueKind == JsonValueKind.String
+            ? property.GetString()
+            : null;
+    }
+
+    private readonly record struct ContextMenuTarget(
+        string? Selection,
+        string? Link,
+        string? Image);
 
     private void Post(object message)
     {

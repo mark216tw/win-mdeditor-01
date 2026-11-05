@@ -15,6 +15,13 @@
             Header="主題"
             HorizontalAlignment="Stretch" />
 
+        <ComboBox
+            x:Name="FontFamilyComboBox"
+            AutomationProperties.Name="編輯器字型"
+            Header="編輯器字型"
+            HorizontalAlignment="Stretch"
+            IsEditable="False" />
+
         <ToggleSwitch
             x:Name="SyncScrollingToggle"
             Header="同步捲動"
@@ -23,7 +30,7 @@
 
         <TextBlock
             Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-            Text="啟用後，在並排檢視中捲動編輯器時，預覽視窗會同步捲動到相同比例。"
+            Text="啟用後，在並排檢視中捲動編輯器時，預覽視窗會依區塊行號自動對齊捲動位置。"
             TextWrapping="Wrap" />
 
         <ToggleSwitch
@@ -49,7 +56,7 @@
             <ToggleSwitch
                 x:Name="FileAssociationToggle"
                 AutomationProperties.Name="登錄為 Markdown 檔案的開啟方式"
-                Header="登錄為 .md、.markdown 的開啟方式"
+                Header="登錄為 Markdown 檔案（.md、.markdown、.mdown、.mkd）的開啟方式"
                 OffContent="未登錄"
                 OnContent="已登錄" />
 

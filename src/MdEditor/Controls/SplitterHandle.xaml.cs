@@ -2,16 +2,22 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using Windows.Foundation;
 
 namespace VibeCode.MdEditor.Controls;
 
 public sealed partial class SplitterHandle : UserControl
 {
+    private const ulong DoubleClickInterval = 500_000;
+    private const double DoubleClickTolerance = 6;
+
     private static readonly InputCursor ResizeCursor =
         InputSystemCursor.Create(InputSystemCursorShape.SizeWestEast);
 
     private bool _isDragging;
     private double _lastX;
+    private ulong _lastPrimaryPressTimestamp;
+    private Point _lastPrimaryPressPosition;
 
     public SplitterHandle()
     {
@@ -25,10 +31,32 @@ public sealed partial class SplitterHandle : UserControl
 
     public event EventHandler<double>? DragDelta;
 
+    public event EventHandler? ResetRequested;
+
     private void OnPointerPressed(object sender, PointerRoutedEventArgs e)
     {
-        if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
+        var point = e.GetCurrentPoint(this);
+        if (!point.Properties.IsLeftButtonPressed)
         {
+            return;
+        }
+
+        var isDoubleClick =
+            _lastPrimaryPressTimestamp != 0 &&
+            point.Timestamp >= _lastPrimaryPressTimestamp &&
+            point.Timestamp - _lastPrimaryPressTimestamp <= DoubleClickInterval &&
+            Math.Abs(point.Position.X - _lastPrimaryPressPosition.X) <= DoubleClickTolerance &&
+            Math.Abs(point.Position.Y - _lastPrimaryPressPosition.Y) <= DoubleClickTolerance;
+
+        _lastPrimaryPressTimestamp = point.Timestamp;
+        _lastPrimaryPressPosition = point.Position;
+
+        if (isDoubleClick)
+        {
+            _lastPrimaryPressTimestamp = 0;
+            _isDragging = false;
+            ResetRequested?.Invoke(this, EventArgs.Empty);
+            e.Handled = true;
             return;
         }
 

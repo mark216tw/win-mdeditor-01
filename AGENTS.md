@@ -154,8 +154,9 @@ docs/DEV_LOG.md                # 開發過程紀錄（必要）
   - Word 匯出使用 OpenXML（不依賴安裝 Word）；PDF 使用 WebView2 `PrintToPdfAsync`。
   - 未封裝（`WindowsPackageType=None`）且 self-contained；需檢查 WebView2 Evergreen Runtime。
   - 修改 `web/` 後需執行 `npm --prefix web install` 與 `npm --prefix web run build`，將 bundle 產出到 `src/MdEditor/Assets`。
+  - 重建前若 App 正在執行，使用 `taskkill /F /T /IM MdEditor.exe` 終止整個程序樹，避免殘留 `msedgewebview2.exe` 鎖住 WebView2 使用者資料夾。
 - 已知限制：
-  - 尚未實作自動儲存、當機復原、工作階段還原與自訂尋找／取代 UI。
-  - 同步捲動為比例式；預覽封鎖遠端圖片與原始 HTML。
-  - Word 匯出不嵌入遠端圖片；PDF 固定 A4。
-  - 尚未實測 Windows 10 1809。
+  - 已實作工作階段草稿暫存與還原，但尚未提供自動覆寫原檔（Auto-Save）與多版本歷史；尋找／取代使用 CodeMirror 內建面板。
+  - 同步捲動為單向（依區塊行號錨點對齊）；預覽與 Word 匯出封鎖遠端圖片、原始 HTML 與跨上層目錄路徑。
+  - Word 匯出尚不排版數學公式與 Mermaid 圖表；PDF 固定 A4。
+  - 尚未實測 Windows 10 1809 與 ARM64 實機。
