@@ -5,11 +5,12 @@ import { indentWithTab, redo, selectAll, undo } from '@codemirror/commands';
 import { openSearchPanel } from '@codemirror/search';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { syntaxHighlighting } from '@codemirror/language';
-import { languages } from '@codemirror/language-data';
+import { languages } from './languages.js';
 import { oneDarkHighlightStyle } from '@codemirror/theme-one-dark';
 
 const themeCompartment = new Compartment();
 const wrapCompartment = new Compartment();
+const readOnlyCompartment = new Compartment();
 
 const chromeThemeSpec = {
   '&': {
@@ -108,14 +109,16 @@ function themeExtensions(theme) {
 
 let currentTheme = 'light';
 let currentWordWrap = true;
+let currentReadOnly = false;
 let currentFontSize = 14;
 let includeTextInChange = true;
 let currentDocumentId = null;
 let suppressChange = false;
 let changeTimer = null;
 let selectionTimer = null;
-let scrollTimer = null;
+let scrollRaf = 0;
 let wheelAccumulator = 0;
+const sessionStates = new Map();
 
 function send(message) {
   if (window.chrome?.webview) {
@@ -193,6 +196,38 @@ function buildExtensions() {
         },
       },
       {
+        key: 'Mod-k',
+        preventDefault: true,
+        run: () => {
+          applyCommand('link');
+          return true;
+        },
+      },
+      {
+        key: 'Mod-h',
+        preventDefault: true,
+        run: () => {
+          applyCommand('replace');
+          return true;
+        },
+      },
+      {
+        key: 'Ctrl-Tab',
+        preventDefault: true,
+        run: () => {
+          send({ type: 'shortcut', name: 'nextTab' });
+          return true;
+        },
+      },
+      {
+        key: 'Ctrl-Shift-Tab',
+        preventDefault: true,
+        run: () => {
+          send({ type: 'shortcut', name: 'previousTab' });
+          return true;
+        },
+      },
+      {
         key: 'Mod-1',
         preventDefault: true,
         run: () => {
@@ -254,6 +289,68 @@ function buildExtensions() {
     EditorState.phrases.of(phrases),
     themeCompartment.of(themeExtensions(currentTheme)),
     wrapCompartment.of(currentWordWrap ? EditorView.lineWrapping : []),
+    readOnlyCompartment.of([
+      EditorState.readOnly.of(currentReadOnly),
+      EditorView.editable.of(!currentReadOnly),
+    ]),
+    EditorView.domEventHandlers({
+      paste(event, editorView) {
+        if (currentReadOnly) {
+          return false;
+        }
+
+        const items = Array.from(event.clipboardData?.items ?? []);
+        const imageItem = items.find((item) => item.kind === 'file' && item.type.startsWith('image/'));
+        if (imageItem) {
+          const file = imageItem.getAsFile();
+          if (file) {
+            event.preventDefault();
+            const targetDocumentId = currentDocumentId;
+            const mimeType = file.type || imageItem.type;
+            const reader = new FileReader();
+            reader.onload = () => {
+              if (typeof reader.result !== 'string') {
+                return;
+              }
+
+              const comma = reader.result.indexOf(',');
+              const base64 = comma >= 0 ? reader.result.slice(comma + 1) : reader.result;
+              send({
+                type: 'pasteImage',
+                documentId: targetDocumentId,
+                mimeType,
+                base64,
+              });
+            };
+            reader.readAsDataURL(file);
+            return true;
+          }
+        }
+
+        const { from, to } = editorView.state.selection.main;
+        if (from === to) {
+          return false;
+        }
+
+        const selected = editorView.state.sliceDoc(from, to);
+        if (selected.includes('\n')) {
+          return false;
+        }
+
+        const pasted = event.clipboardData?.getData('text/plain')?.trim() ?? '';
+        if (!/^https?:\/\/\S+$/i.test(pasted)) {
+          return false;
+        }
+
+        event.preventDefault();
+        const insert = `[${selected}](${pasted})`;
+        editorView.dispatch({
+          changes: { from, to, insert },
+          selection: { anchor: from + insert.length },
+        });
+        return true;
+      },
+    }),
     EditorView.updateListener.of((update) => {
       if (suppressChange) {
         return;
@@ -303,6 +400,21 @@ function sendSelection() {
   });
 }
 
+function getTopVisibleLine() {
+  const scroller = view.scrollDOM;
+  if (scroller.scrollTop <= 0) {
+    return 1;
+  }
+
+  const docOffset = Math.max(0, scroller.getBoundingClientRect().top - view.documentTop);
+  const block = view.lineBlockAtHeight(docOffset);
+  const line = view.state.doc.lineAt(block.from);
+  const fraction = block.height > 0
+    ? Math.max(0, Math.min(1, (docOffset - block.top) / block.height))
+    : 0;
+  return line.number + fraction;
+}
+
 function sendScroll() {
   const scroller = view.scrollDOM;
   const max = scroller.scrollHeight - scroller.clientHeight;
@@ -310,13 +422,20 @@ function sendScroll() {
     type: 'scroll',
     documentId: currentDocumentId,
     percent: max > 0 ? scroller.scrollTop / max : 0,
+    line: getTopVisibleLine(),
   });
 }
 
 view.scrollDOM.addEventListener('scroll', () => {
-  clearTimeout(scrollTimer);
-  scrollTimer = setTimeout(sendScroll, 100);
-});
+  if (scrollRaf) {
+    return;
+  }
+
+  scrollRaf = requestAnimationFrame(() => {
+    scrollRaf = 0;
+    sendScroll();
+  });
+}, { passive: true });
 
 view.scrollDOM.addEventListener('wheel', (event) => {
   if (!event.ctrlKey || event.deltaY === 0) {
@@ -347,15 +466,52 @@ view.scrollDOM.addEventListener('wheel', (event) => {
 }, { passive: false });
 
 function setContent(text, documentId) {
+  if (currentDocumentId) {
+    sessionStates.set(currentDocumentId, {
+      state: view.state,
+      scrollTop: view.scrollDOM.scrollTop,
+    });
+  }
+
   currentDocumentId = documentId;
   suppressChange = true;
   clearTimeout(changeTimer);
-  view.setState(EditorState.create({
-    doc: text ?? '',
-    extensions: buildExtensions(),
-  }));
+
+  const incoming = text ?? '';
+  const cached = documentId ? sessionStates.get(documentId) : null;
+
+  if (cached && cached.state.doc.toString() === incoming) {
+    view.setState(cached.state);
+    view.dispatch({
+      effects: [
+        themeCompartment.reconfigure(themeExtensions(currentTheme)),
+        wrapCompartment.reconfigure(currentWordWrap ? EditorView.lineWrapping : []),
+        readOnlyCompartment.reconfigure([
+          EditorState.readOnly.of(currentReadOnly),
+          EditorView.editable.of(!currentReadOnly),
+        ]),
+      ],
+    });
+    view.scrollDOM.scrollTop = cached.scrollTop;
+    requestAnimationFrame(() => {
+      if (currentDocumentId === documentId) {
+        view.scrollDOM.scrollTop = cached.scrollTop;
+        sendScroll();
+      }
+    });
+  } else {
+    if (documentId) {
+      sessionStates.delete(documentId);
+    }
+
+    view.setState(EditorState.create({
+      doc: incoming,
+      extensions: buildExtensions(),
+    }));
+    view.scrollDOM.scrollTop = 0;
+  }
+
   suppressChange = false;
-  view.scrollDOM.scrollTop = 0;
   sendSelection();
   sendScroll();
 }
@@ -373,6 +529,16 @@ function setWordWrap(enabled) {
   view.dispatch({
     effects: wrapCompartment.reconfigure(
       currentWordWrap ? EditorView.lineWrapping : []),
+  });
+}
+
+function setReadOnly(enabled) {
+  currentReadOnly = Boolean(enabled);
+  view.dispatch({
+    effects: readOnlyCompartment.reconfigure([
+      EditorState.readOnly.of(currentReadOnly),
+      EditorView.editable.of(!currentReadOnly),
+    ]),
   });
 }
 
@@ -396,15 +562,70 @@ function currentSelection() {
   };
 }
 
+function isAsteriskFalseMatch(beforeText, afterText, marker) {
+  if (marker !== '*') {
+    return false;
+  }
+
+  return beforeText.endsWith('**') &&
+         afterText.startsWith('**') &&
+         !(beforeText.endsWith('***') && afterText.startsWith('***'));
+}
+
 function wrapInline(before, after, placeholder) {
   const { selection, text } = currentSelection();
+  const bLen = before.length;
+  const aLen = after.length;
+
+  const contextBefore = view.state.sliceDoc(Math.max(0, selection.from - 3), selection.from);
+  const contextAfter = view.state.sliceDoc(selection.to, selection.to + 3);
+  const outerBefore = view.state.sliceDoc(Math.max(0, selection.from - bLen), selection.from);
+  const outerAfter = view.state.sliceDoc(selection.to, selection.to + aLen);
+
+  if (selection.from >= bLen &&
+      outerBefore === before &&
+      outerAfter === after &&
+      !isAsteriskFalseMatch(contextBefore, contextAfter, before)) {
+    view.dispatch({
+      changes: [
+        { from: selection.from - bLen, to: selection.from, insert: '' },
+        { from: selection.to, to: selection.to + aLen, insert: '' },
+      ],
+      selection: {
+        anchor: selection.from - bLen,
+        head: selection.to - bLen,
+      },
+    });
+    view.focus();
+    return;
+  }
+
+  if (text.length >= bLen + aLen &&
+      text.startsWith(before) &&
+      text.endsWith(after) &&
+      !(before === '*' &&
+        text.startsWith('**') &&
+        text.endsWith('**') &&
+        !(text.startsWith('***') && text.endsWith('***')))) {
+    const unwrapped = text.slice(bLen, text.length - aLen);
+    view.dispatch({
+      changes: { from: selection.from, to: selection.to, insert: unwrapped },
+      selection: {
+        anchor: selection.from,
+        head: selection.from + unwrapped.length,
+      },
+    });
+    view.focus();
+    return;
+  }
+
   const inner = text || placeholder;
   const insert = before + inner + after;
   view.dispatch({
     changes: { from: selection.from, to: selection.to, insert },
     selection: {
-      anchor: selection.from + before.length,
-      head: selection.from + before.length + inner.length,
+      anchor: selection.from + bLen,
+      head: selection.from + bLen + inner.length,
     },
   });
   view.focus();
@@ -502,6 +723,10 @@ function insertImage() {
 }
 
 function applyCommand(name) {
+  if (currentReadOnly) {
+    return;
+  }
+
   switch (name) {
     case 'bold':
       wrapInline('**', '**', '粗體文字');
@@ -570,9 +795,39 @@ function applyCommand(name) {
     case 'find':
       openSearchPanel(view);
       break;
+    case 'replace':
+      openSearchPanel(view);
+      view.dom.querySelector('.cm-textfield[name="replace"]')?.focus();
+      break;
     default:
       break;
   }
+}
+
+function toggleTaskAtLine(documentId, lineNumber, checked) {
+  if (currentReadOnly || (documentId && documentId !== currentDocumentId)) {
+    return;
+  }
+
+  if (!Number.isInteger(lineNumber) || lineNumber < 1 || lineNumber > view.state.doc.lines) {
+    return;
+  }
+
+  const line = view.state.doc.line(lineNumber);
+  const match = line.text.match(/^(\s*(?:>\s*)*(?:[-*+]|\d+[.)])\s+\[)[ xX](\])/);
+  if (!match) {
+    return;
+  }
+
+  const bracketCharPos = line.from + match[1].length;
+  const replacement = checked ? 'x' : ' ';
+  if (view.state.sliceDoc(bracketCharPos, bracketCharPos + 1) === replacement) {
+    return;
+  }
+
+  view.dispatch({
+    changes: { from: bracketCharPos, to: bracketCharPos + 1, insert: replacement },
+  });
 }
 
 window.chrome?.webview?.addEventListener('message', (event) => {
@@ -584,6 +839,7 @@ window.chrome?.webview?.addEventListener('message', (event) => {
   switch (data.type) {
     case 'setContent':
       setContent(data.text, data.documentId ?? null);
+      send({ type: 'contentSet', id: data.id });
       break;
     case 'getContent':
       send({
@@ -607,6 +863,22 @@ window.chrome?.webview?.addEventListener('message', (event) => {
       break;
     case 'changeMode':
       includeTextInChange = Boolean(data.includeText);
+      break;
+    case 'readOnly':
+      setReadOnly(data.enabled);
+      break;
+    case 'disposeDocument':
+      if (data.documentId) {
+        sessionStates.delete(data.documentId);
+      }
+      break;
+    case 'insertText':
+      if (!currentReadOnly && (!data.documentId || data.documentId === currentDocumentId)) {
+        insertSnippet(data.text ?? '', 0);
+      }
+      break;
+    case 'toggleTask':
+      toggleTaskAtLine(data.documentId, Number(data.line), Boolean(data.checked));
       break;
     case 'scroll':
       view.scrollDOM.scrollTop =

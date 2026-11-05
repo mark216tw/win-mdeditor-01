@@ -80,6 +80,27 @@ public sealed class SessionDraftServiceTests
     }
 
     [Fact]
+    public async Task Load_DeletesOrphanDraftFile()
+    {
+        using var temp = new TempDirectory();
+        var service = new SessionDraftService(temp.DirectoryPath);
+
+        await service.SaveAsync(new DraftSession(
+            null,
+            "Split",
+            [CreateSnapshot("doc1", "one", null, "one", isDirty: true)]));
+
+        var orphanPath = Path.Combine(service.DraftsDirectory, "orphan.json");
+        await File.WriteAllTextAsync(orphanPath, "{}");
+
+        var session = await service.LoadAsync();
+
+        Assert.NotNull(session);
+        Assert.Single(session.Documents);
+        Assert.False(File.Exists(orphanPath));
+    }
+
+    [Fact]
     public async Task Load_SkipsMissingAndCorruptDrafts()
     {
         using var temp = new TempDirectory();

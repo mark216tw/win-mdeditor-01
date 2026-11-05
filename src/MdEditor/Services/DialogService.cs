@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using VibeCode.MdEditor.Core.Helpers;
 using Windows.Storage.Pickers;
 using WinRT.Interop;
 
@@ -45,9 +46,10 @@ public sealed class DialogService : IDialogService
             ViewMode = PickerViewMode.List,
         };
 
-        picker.FileTypeFilter.Add(".md");
-        picker.FileTypeFilter.Add(".markdown");
-        picker.FileTypeFilter.Add(".txt");
+        foreach (var extension in SupportedFileTypes.Extensions)
+        {
+            picker.FileTypeFilter.Add(extension);
+        }
 
         InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(window));
         var file = await picker.PickSingleFileAsync();

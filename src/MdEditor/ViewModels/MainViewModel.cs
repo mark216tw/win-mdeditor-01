@@ -27,6 +27,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private readonly IUiDispatcher _dispatcher;
     private readonly ILogger<MainViewModel> _logger;
     private readonly Dictionary<string, DateTimeOffset> _watcherSuppression = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _pendingRestorePaths = new(StringComparer.OrdinalIgnoreCase);
     private readonly SemaphoreSlim _documentSwitchLock = new(1, 1);
     private readonly UISettings _uiSettings = new();
 
@@ -35,9 +36,16 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private CancellationTokenSource? _previewCancellation;
     private CancellationTokenSource? _draftSaveCancellation;
     private CancellationTokenSource? _statsCancellation;
-    private CancellationTokenSource? _textSyncCancellation;
     private CancellationTokenSource? _fontSizeSaveCancellation;
+    private Task? _sessionRestoreTask;
+    private TaskCompletionSource? _sessionRestoreCompletion;
+    private long _previewRenderGeneration;
+    private string? _lastPreviewDocumentId;
+    private string? _lastPreviewText;
+    private string? _lastPreviewDirectory;
     private bool _isLoadingDocument;
+    private bool _isRestoringSession;
+    private bool _isClosing;
     private bool _activeDocumentTextStale;
     private int _untitledCounter;
     private string _currentTheme = "light";
@@ -171,28 +179,41 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         editor.ContentChanged += OnEditorContentChanged;
         editor.SelectionChanged += OnEditorSelectionChanged;
         editor.ScrollChanged += OnEditorScrollChanged;
-        editor.ShortcutRequested += OnEditorShortcutRequested;
+        editor.ShortcutRequested += OnShortcutRequested;
         editor.FontSizeChanged += OnEditorFontSizeChanged;
+        editor.ImagePasted += OnEditorImagePasted;
         preview.LinkRequested += OnPreviewLinkRequested;
+        preview.ShortcutRequested += OnShortcutRequested;
         preview.FontSizeChanged += OnPreviewFontSizeChanged;
+        preview.TaskToggled += OnPreviewTaskToggled;
+
+        var editorInitTask = editor.InitializeAsync();
+        var sessionLoadTask = LoadSessionDraftAsync();
 
         if (!_settings.IsLoaded)
         {
             await _settings.LoadAsync();
         }
 
-        await _recentFiles.InitializeAsync();
-        await _recentFiles.PruneAsync();
-
-        await editor.InitializeAsync();
-
         ViewMode = ParseViewMode(_settings.Settings.ViewMode);
+        if (ViewMode != EditorViewMode.Edit)
+        {
+            _ = preview.InitializeAsync();
+        }
+
+        await _recentFiles.InitializeAsync();
+        _ = PruneRecentFilesAsync();
+
+        await editorInitTask;
+
         await editor.SetIncludeTextInChangeAsync(ViewMode != EditorViewMode.Edit);
         await editor.SetWordWrapAsync(_settings.Settings.WordWrap);
         await editor.SetFontSizeAsync(_settings.Settings.EditorFontSize);
         await preview.SetFontSizeAsync(_settings.Settings.EditorFontSize);
         await ApplyThemeAsync(_settings.Settings.Theme, save: false);
-        await RestoreSessionAsync();
+
+        var session = await sessionLoadTask;
+        await RestoreSessionAsync(session);
 
         if (!string.IsNullOrWhiteSpace(filePath))
         {
@@ -209,6 +230,25 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         }
 
         UpdateStatus();
+    }
+
+    public async Task BeginClosingAsync()
+    {
+        _isClosing = true;
+        if (_editor is not null)
+        {
+            await _editor.SetReadOnlyAsync(true);
+        }
+    }
+
+    public async Task CancelClosingAsync()
+    {
+        _isClosing = false;
+        if (_editor is not null)
+        {
+            await _editor.SetReadOnlyAsync(false);
+            await _editor.FocusAsync();
+        }
     }
 
     public (double Width, double Height) GetSavedWindowSize()
@@ -416,6 +456,23 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         }
     }
 
+    public async Task SelectAdjacentDocumentAsync(int offset)
+    {
+        if (Documents.Count <= 1 || ActiveDocument is null)
+        {
+            return;
+        }
+
+        var index = Documents.IndexOf(ActiveDocument);
+        if (index < 0)
+        {
+            return;
+        }
+
+        var nextIndex = (index + (offset % Documents.Count) + Documents.Count) % Documents.Count;
+        await SelectDocumentAsync(Documents[nextIndex]);
+    }
+
     public async Task OpenFileAsync(string path)
     {
         string fullPath;
@@ -437,6 +494,14 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
+        var restoreCompletion = _sessionRestoreCompletion;
+        if (_isRestoringSession &&
+            restoreCompletion is not null &&
+            _pendingRestorePaths.Contains(fullPath))
+        {
+            await restoreCompletion.Task;
+        }
+
         var existing = Documents.FirstOrDefault(document =>
             document.FilePath is not null &&
             PathsEqual(document.FilePath, fullPath));
@@ -452,6 +517,15 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         try
         {
             var loaded = await _fileService.LoadAsync(fullPath);
+            existing = Documents.FirstOrDefault(document =>
+                document.FilePath is not null &&
+                PathsEqual(document.FilePath, fullPath));
+            if (existing is not null)
+            {
+                await SelectDocumentAsync(existing);
+                return;
+            }
+
             var document = new DocumentViewModel(Path.GetFileName(fullPath))
             {
                 FilePath = fullPath,
@@ -555,6 +629,18 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         }
 
         Documents.Remove(document);
+
+        if (_editor is not null)
+        {
+            try
+            {
+                await _editor.DisposeDocumentAsync(document.Id);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "釋放編輯器分頁快取失敗：{DocumentId}", document.Id);
+            }
+        }
 
         try
         {
@@ -938,8 +1024,15 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             }
 
             _fileWatcher.Watch(fullPath);
-            await _recentFiles.AddOrUpdateAsync(fullPath);
-            await RenderPreviewNowAsync(document);
+            if (!IsRecentFileTracked(fullPath))
+            {
+                await _recentFiles.AddOrUpdateAsync(fullPath);
+            }
+
+            if (ViewMode != EditorViewMode.Edit && !IsPreviewUpToDate(document))
+            {
+                _ = RenderPreviewNowAsync(document);
+            }
 
             StatusText = $"已儲存：{document.Title}";
             UpdateStatus();
@@ -966,18 +1059,18 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
-        CancelTextSync();
         _activeDocumentTextStale = false;
         _isLoadingDocument = true;
         _previewCancellation?.Cancel();
 
+        if (ViewMode != EditorViewMode.Edit)
+        {
+            _ = RenderPreviewNowAsync(document);
+        }
+
         try
         {
-            CursorText = "行 1，欄 1";
-            await _preview.SetDocumentFolderAsync(
-                string.IsNullOrEmpty(document.FileDirectory) ? null : document.FileDirectory);
             await _editor.SetContentAsync(document.Text, document.Id);
-            await RenderPreviewNowAsync(document);
         }
         catch (Exception ex)
         {
@@ -988,6 +1081,18 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             _isLoadingDocument = false;
             UpdateStatus();
             UpdateBanner();
+        }
+    }
+
+    private async Task PruneRecentFilesAsync()
+    {
+        try
+        {
+            await _recentFiles.PruneAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "檢查最近檔案失敗。");
         }
     }
 
@@ -1077,28 +1182,70 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
+        var generation = Interlocked.Increment(ref _previewRenderGeneration);
+        var revision = document.Revision;
+        var text = document.Text;
+        var directory = string.IsNullOrEmpty(document.FileDirectory) ? null : document.FileDirectory;
+
         try
         {
-            var directory = string.IsNullOrEmpty(document.FileDirectory) ? null : document.FileDirectory;
-            var html = await Task.Run(() => _markdownRenderer.Render(document.Text, directory));
+            var html = await Task.Run(() => _markdownRenderer.Render(text, directory));
 
-            if (!ReferenceEquals(document, ActiveDocument))
+            if (!ReferenceEquals(document, ActiveDocument) ||
+                document.Revision != revision ||
+                generation != Volatile.Read(ref _previewRenderGeneration))
             {
                 return;
             }
 
             await _preview.SetDocumentFolderAsync(directory);
+            if (!ReferenceEquals(document, ActiveDocument) ||
+                document.Revision != revision ||
+                generation != Volatile.Read(ref _previewRenderGeneration))
+            {
+                return;
+            }
+
             await _preview.RenderAsync(
                 html,
                 _currentTheme,
                 Guid.NewGuid().ToString("N"),
                 document.Id);
+
+            if (ReferenceEquals(document, ActiveDocument) &&
+                ReferenceEquals(document.Text, text) &&
+                generation == Volatile.Read(ref _previewRenderGeneration))
+            {
+                _lastPreviewDocumentId = document.Id;
+                _lastPreviewText = text;
+                _lastPreviewDirectory = directory;
+            }
         }
         catch (Exception ex)
         {
-            ShowError("預覽失敗", ex.Message);
+            if (generation == Volatile.Read(ref _previewRenderGeneration))
+            {
+                ShowError("預覽失敗", ex.Message);
+            }
         }
     }
+
+    private bool IsPreviewUpToDate(DocumentViewModel document)
+    {
+        var directory = string.IsNullOrEmpty(document.FileDirectory) ? null : document.FileDirectory;
+
+        return string.Equals(_lastPreviewDocumentId, document.Id, StringComparison.Ordinal) &&
+               ReferenceEquals(_lastPreviewText, document.Text) &&
+               string.Equals(_lastPreviewDirectory, directory, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private bool IsRecentFileTracked(string path)
+    {
+        return _recentFiles.Items.Any(entry =>
+            !entry.IsMissing &&
+            string.Equals(entry.Path, path, StringComparison.OrdinalIgnoreCase));
+    }
+
     private async Task ApplyThemeAsync(string theme, bool save)
     {
         var resolved = AppThemeCatalog.Resolve(
@@ -1148,20 +1295,32 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
-        UpdateStatus();
+        var propertyName = e.PropertyName;
 
-        if (e.PropertyName is nameof(DocumentViewModel.FilePath))
+        if (propertyName is nameof(DocumentViewModel.Text) or
+            nameof(DocumentViewModel.Title) or
+            nameof(DocumentViewModel.FilePath) or
+            nameof(DocumentViewModel.IsDirty) or
+            nameof(DocumentViewModel.EncodingName) or
+            nameof(DocumentViewModel.CodePage) or
+            nameof(DocumentViewModel.HasBom) or
+            nameof(DocumentViewModel.LineEnding))
+        {
+            UpdateStatus();
+        }
+
+        if (propertyName is nameof(DocumentViewModel.FilePath))
         {
             RecentMenuStateChanged?.Invoke(this, EventArgs.Empty);
         }
 
-        if (e.PropertyName is nameof(DocumentViewModel.IsExternalChange) or
+        if (propertyName is nameof(DocumentViewModel.IsExternalChange) or
             nameof(DocumentViewModel.ExternalChangeMessage))
         {
             UpdateBanner();
         }
 
-        if (e.PropertyName is nameof(DocumentViewModel.Title) or
+        if (propertyName is nameof(DocumentViewModel.Title) or
             nameof(DocumentViewModel.FilePath) or
             nameof(DocumentViewModel.IsDirty) or
             nameof(DocumentViewModel.EncodingName) or
@@ -1202,10 +1361,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                 document.IsDirty = true;
             }
 
-            UpdateStatus();
-            SchedulePreviewRender();
             ScheduleDraftSave();
-            ScheduleTextSync();
             return;
         }
 
@@ -1223,49 +1379,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             document.IsDirty = true;
         }
 
-        UpdateStatus();
         SchedulePreviewRender();
         ScheduleDraftSave();
-    }
-
-    private void ScheduleTextSync()
-    {
-        CancelTextSync();
-
-        var cancellation = new CancellationTokenSource();
-        _textSyncCancellation = cancellation;
-        _ = SyncEditorTextDebouncedAsync(cancellation.Token);
-    }
-
-    private void CancelTextSync()
-    {
-        var previous = _textSyncCancellation;
-        _textSyncCancellation = null;
-        previous?.Cancel();
-        previous?.Dispose();
-    }
-
-    private async Task SyncEditorTextDebouncedAsync(CancellationToken cancellationToken)
-    {
-        try
-        {
-            await Task.Delay(250, cancellationToken);
-
-            if (cancellationToken.IsCancellationRequested || !_activeDocumentTextStale)
-            {
-                return;
-            }
-
-            await FlushEditorAsync();
-
-            if (!cancellationToken.IsCancellationRequested)
-            {
-                UpdateStatus();
-            }
-        }
-        catch (OperationCanceledException)
-        {
-        }
     }
 
     private void OnEditorSelectionChanged(object? sender, EditorSelectionChangedEventArgs e)
@@ -1293,11 +1408,16 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
-        _ = _preview.SetScrollPercentAsync(e.Percent);
+        _ = _preview.SetScrollPercentAsync(e.Percent, e.Line);
     }
 
-    private void OnEditorShortcutRequested(object? sender, string name)
+    private void OnShortcutRequested(object? sender, string name)
     {
+        if (_isClosing)
+        {
+            return;
+        }
+
         switch (name)
         {
             case "save":
@@ -1336,6 +1456,73 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             case "zoomReset":
                 _ = ResetFontSizeAsync();
                 break;
+            case "nextTab":
+                _ = SelectAdjacentDocumentAsync(1);
+                break;
+            case "previousTab":
+                _ = SelectAdjacentDocumentAsync(-1);
+                break;
+        }
+    }
+
+    private void OnPreviewTaskToggled(object? sender, PreviewTaskToggledEventArgs e)
+    {
+        _ = HandlePreviewTaskToggledAsync(e);
+    }
+
+    private async Task HandlePreviewTaskToggledAsync(PreviewTaskToggledEventArgs e)
+    {
+        if (_isClosing || _editor is null)
+        {
+            return;
+        }
+
+        var document = ActiveDocument;
+        if (document is null || !string.Equals(document.Id, e.DocumentId, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        await _editor.ToggleTaskLineAsync(document.Id, e.Line, e.IsChecked);
+    }
+
+    private void OnEditorImagePasted(object? sender, EditorImagePasteEventArgs e)
+    {
+        _ = HandleEditorImagePastedAsync(e);
+    }
+
+    private async Task HandleEditorImagePastedAsync(EditorImagePasteEventArgs e)
+    {
+        if (_isClosing || _editor is null)
+        {
+            return;
+        }
+
+        var document = ActiveDocument;
+        if (document is null || !string.Equals(document.Id, e.DocumentId, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(document.FileDirectory))
+        {
+            ShowError("無法貼上圖片", "請先儲存目前文件（Ctrl+S），再貼上剪貼簿圖片。");
+            return;
+        }
+
+        try
+        {
+            var bytes = Convert.FromBase64String(e.Base64Data);
+            var relativePath = await _fileService.SavePastedImageAsync(
+                document.FileDirectory,
+                bytes,
+                e.MimeType);
+            await _editor.InsertTextAsync(document.Id, $"![圖片]({relativePath})");
+            StatusText = $"已儲存貼上圖片：{relativePath}";
+        }
+        catch (Exception ex)
+        {
+            ShowError("貼上圖片失敗", ex.Message);
         }
     }
 
@@ -1369,9 +1556,16 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                 return;
             }
 
+            var directory = Path.GetFullPath(document.FileDirectory);
             var path = Path.GetFullPath(Path.Combine(
-                document.FileDirectory,
+                directory,
                 Uri.UnescapeDataString(pathPart)));
+
+            if (!IsPathWithinDirectory(path, directory))
+            {
+                ShowError("無法開啟連結", "連結指向文件資料夾以外的位置。");
+                return;
+            }
 
             if (File.Exists(path))
             {
@@ -1597,26 +1791,51 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             StringComparison.OrdinalIgnoreCase);
     }
 
+    private static bool IsPathWithinDirectory(string path, string directory)
+    {
+        var trimmedDirectory = Path.TrimEndingDirectorySeparator(directory);
+        var prefix = Path.EndsInDirectorySeparator(trimmedDirectory)
+            ? trimmedDirectory
+            : trimmedDirectory + Path.DirectorySeparatorChar;
+
+        return string.Equals(path, trimmedDirectory, StringComparison.OrdinalIgnoreCase) ||
+               path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
+    }
+
     public async Task PersistSessionAsync()
     {
+        var restoreTask = _sessionRestoreTask;
+        if (restoreTask is not null)
+        {
+            try
+            {
+                await restoreTask;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "等待背景工作階段還原失敗。");
+            }
+        }
+
         await FlushEditorAsync();
         await SaveSessionDraftsAsync();
     }
 
-    private async Task RestoreSessionAsync()
+    private async Task<DraftSession?> LoadSessionDraftAsync()
     {
-        DraftSession? session;
-
         try
         {
-            session = await _sessionDrafts.LoadAsync();
+            return await _sessionDrafts.LoadAsync();
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "載入暫存工作階段失敗。");
-            return;
+            return null;
         }
+    }
 
+    private async Task RestoreSessionAsync(DraftSession? session)
+    {
         if (session is null)
         {
             return;
@@ -1624,36 +1843,184 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
         ViewMode = ParseViewMode(session.ViewMode);
 
-        var restoredPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var restored = await Task.WhenAll(
-            session.Documents.Select(snapshot => CreateRestoredDocumentAsync(snapshot, restoredPaths)));
-
-        foreach (var document in restored)
-        {
-            if (document is null)
-            {
-                continue;
-            }
-
-            Documents.Add(document);
-
-            if (document.FilePath is not null && !document.IsMissing)
-            {
-                _fileWatcher.Watch(document.FilePath);
-            }
-        }
-
-        if (Documents.Count == 0)
+        if (session.Documents.Count == 0)
         {
             return;
         }
 
-        var active = Documents.FirstOrDefault(document =>
-            string.Equals(document.Id, session.ActiveDocumentId, StringComparison.Ordinal))
-            ?? Documents[^1];
+        _isRestoringSession = true;
+        _sessionRestoreCompletion = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        _pendingRestorePaths.Clear();
+        foreach (var snapshot in session.Documents)
+        {
+            if (string.IsNullOrWhiteSpace(snapshot.FilePath))
+            {
+                continue;
+            }
 
+            try
+            {
+                _pendingRestorePaths.Add(Path.GetFullPath(snapshot.FilePath));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "建立待還原路徑索引失敗：{Path}", snapshot.FilePath);
+            }
+        }
+
+        var activeIndex = 0;
+        for (var index = 0; index < session.Documents.Count; index++)
+        {
+            if (string.Equals(
+                    session.Documents[index].DocumentId,
+                    session.ActiveDocumentId,
+                    StringComparison.Ordinal))
+            {
+                activeIndex = index;
+                break;
+            }
+        }
+
+        var restoredPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var active = await CreateRestoredDocumentAsync(session.Documents[activeIndex], restoredPaths);
+        if (active is null)
+        {
+            for (var index = 0; index < session.Documents.Count; index++)
+            {
+                if (index == activeIndex)
+                {
+                    continue;
+                }
+
+                active = await CreateRestoredDocumentAsync(session.Documents[index], restoredPaths);
+                if (active is not null)
+                {
+                    activeIndex = index;
+                    break;
+                }
+            }
+        }
+
+        if (active is null)
+        {
+            CompleteSessionRestore();
+            return;
+        }
+
+        Documents.Add(active);
+        WatchRestoredDocument(active);
         ActiveDocument = active;
         await LoadActiveDocumentAsync();
+
+        _sessionRestoreTask = RestoreRemainingDocumentsAsync(
+            session.Documents,
+            activeIndex,
+            restoredPaths);
+    }
+
+    private async Task RestoreRemainingDocumentsAsync(
+        IReadOnlyList<DraftDocumentSnapshot> snapshots,
+        int activeIndex,
+        HashSet<string> restoredPaths)
+    {
+        (int Index, DocumentViewModel? Document)[] restored;
+        try
+        {
+            using var concurrency = new SemaphoreSlim(2, 2);
+            var tasks = snapshots
+                .Select((snapshot, index) => (Snapshot: snapshot, Index: index))
+                .Where(item => item.Index != activeIndex)
+                .Select(async item =>
+                {
+                    await concurrency.WaitAsync();
+                    try
+                    {
+                        var document = await Task.Run(
+                            () => CreateRestoredDocumentAsync(item.Snapshot, restoredPaths));
+                        return (item.Index, Document: document);
+                    }
+                    finally
+                    {
+                        concurrency.Release();
+                    }
+                })
+                .ToArray();
+
+            restored = await Task.WhenAll(tasks);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "背景還原工作階段失敗。");
+            restored = [];
+        }
+
+        if (_disposed)
+        {
+            CompleteSessionRestore();
+            return;
+        }
+
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        if (!_dispatcher.TryEnqueue(() =>
+            {
+                try
+                {
+                    var addedAny = false;
+                    foreach (var item in restored.OrderBy(item => item.Index))
+                    {
+                        var document = item.Document;
+                        if (document is null || IsDocumentOpen(document))
+                        {
+                            continue;
+                        }
+
+                        Documents.Insert(Math.Min(item.Index, Documents.Count), document);
+                        WatchRestoredDocument(document);
+                        addedAny = true;
+                    }
+
+                    if (addedAny)
+                    {
+                        ScheduleDraftSave();
+                    }
+                }
+                finally
+                {
+                    CompleteSessionRestore();
+                    completion.TrySetResult();
+                }
+            }))
+        {
+            CompleteSessionRestore();
+            return;
+        }
+
+        await completion.Task;
+    }
+
+    private void CompleteSessionRestore()
+    {
+        _isRestoringSession = false;
+        _pendingRestorePaths.Clear();
+        _sessionRestoreCompletion?.TrySetResult();
+    }
+
+    private bool IsDocumentOpen(DocumentViewModel document)
+    {
+        return Documents.Any(existing =>
+            string.Equals(existing.Id, document.Id, StringComparison.Ordinal) ||
+            (existing.FilePath is not null &&
+             document.FilePath is not null &&
+             PathsEqual(existing.FilePath, document.FilePath)));
+    }
+
+    private void WatchRestoredDocument(DocumentViewModel document)
+    {
+        if (document.FilePath is not null && !document.IsMissing)
+        {
+            _fileWatcher.Watch(document.FilePath);
+        }
     }
 
     private async Task<DocumentViewModel?> CreateRestoredDocumentAsync(
@@ -1784,6 +2151,11 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     private async Task SaveSessionDraftsAsync(CancellationToken cancellationToken = default)
     {
+        if (_isRestoringSession)
+        {
+            return;
+        }
+
         if (_disposed)
         {
             return;
@@ -1856,8 +2228,6 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         _draftSaveCancellation?.Dispose();
         _statsCancellation?.Cancel();
         _statsCancellation?.Dispose();
-        _textSyncCancellation?.Cancel();
-        _textSyncCancellation?.Dispose();
         _fontSizeSaveCancellation?.Cancel();
         _fontSizeSaveCancellation?.Dispose();
         _documentSwitchLock.Dispose();

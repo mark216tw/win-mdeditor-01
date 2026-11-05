@@ -18,7 +18,7 @@ public sealed class FileLoggerProvider : ILoggerProvider
     {
         _directory = directory;
         Directory.CreateDirectory(directory);
-        PruneOldLogs(directory);
+        _ = Task.Run(() => PruneOldLogs(directory));
 
         _channel = Channel.CreateBounded<string>(new BoundedChannelOptions(MaxQueuedEntries)
         {

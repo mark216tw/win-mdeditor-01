@@ -371,7 +371,11 @@ async function renderMermaidBlocks(blocks, generation) {
     if (generation === renderGeneration) {
       for (const { holder, source } of blocks) {
         if (holder?.isConnected) {
-          holder.replaceWith(createMermaidError(source, error));
+          const errorBox = createMermaidError(source, error);
+          if (holder.dataset.line) {
+            errorBox.dataset.line = holder.dataset.line;
+          }
+          holder.replaceWith(errorBox);
         }
       }
     }
@@ -399,7 +403,11 @@ async function renderMermaidBlocks(blocks, generation) {
     const cachedSvg = mermaidCache.get(cacheKey);
 
     if (cachedSvg) {
-      holder.replaceWith(createMermaidFigure(source, cachedSvg));
+      const figure = createMermaidFigure(source, cachedSvg);
+      if (holder.dataset.line) {
+        figure.dataset.line = holder.dataset.line;
+      }
+      holder.replaceWith(figure);
       continue;
     }
 
@@ -414,6 +422,9 @@ async function renderMermaidBlocks(blocks, generation) {
       trimCache(mermaidCache, 100);
 
       const figure = createMermaidFigure(source, result.svg);
+      if (holder.dataset.line) {
+        figure.dataset.line = holder.dataset.line;
+      }
       holder.replaceWith(figure);
       if (typeof result.bindFunctions === 'function') {
         result.bindFunctions(figure);
@@ -423,7 +434,11 @@ async function renderMermaidBlocks(blocks, generation) {
         continue;
       }
 
-      holder.replaceWith(createMermaidError(source, error));
+      const errorBox = createMermaidError(source, error);
+      if (holder.dataset.line) {
+        errorBox.dataset.line = holder.dataset.line;
+      }
+      holder.replaceWith(errorBox);
     } finally {
       document.getElementById(`d${renderId}`)?.remove();
     }
@@ -524,6 +539,76 @@ function waitForImages() {
   }));
 }
 
+function enableTaskCheckboxes(root) {
+  for (const checkbox of root.querySelectorAll('input[type="checkbox"]')) {
+    checkbox.removeAttribute('disabled');
+  }
+}
+
+function scrollToSourceLine(line, percent) {
+  const maxScroll = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+  if (maxScroll <= 0 || (percent ?? 0) <= 0) {
+    window.scrollTo(0, 0);
+    return;
+  }
+
+  const clampedPercent = Math.max(0, Math.min(1, percent ?? 0));
+  if (clampedPercent >= 0.995) {
+    window.scrollTo(0, maxScroll);
+    return;
+  }
+
+  if (!Number.isFinite(line) || line <= 0) {
+    window.scrollTo(0, clampedPercent * maxScroll);
+    return;
+  }
+
+  const elements = content.querySelectorAll('[data-line]');
+  if (elements.length === 0) {
+    window.scrollTo(0, clampedPercent * maxScroll);
+    return;
+  }
+
+  let prevLine = 1;
+  let prevTop = 0;
+  let nextLine = null;
+  let nextTop = null;
+  const scrollY = window.scrollY;
+
+  for (const element of elements) {
+    const elementLine = Number(element.dataset.line);
+    if (!Number.isFinite(elementLine)) {
+      continue;
+    }
+
+    const top = Math.max(0, element.getBoundingClientRect().top + scrollY - 24);
+    if (elementLine <= line) {
+      if (elementLine >= prevLine) {
+        prevLine = elementLine;
+        prevTop = top;
+      }
+    } else if (nextLine === null || elementLine < nextLine) {
+      nextLine = elementLine;
+      nextTop = top;
+    }
+  }
+
+  let targetY;
+  if (nextLine !== null && nextTop !== null && nextLine > prevLine) {
+    const ratio = (line - prevLine) / (nextLine - prevLine);
+    targetY = prevTop + ratio * (nextTop - prevTop);
+  } else {
+    targetY = prevTop;
+  }
+
+  if (clampedPercent > 0.9) {
+    const blend = (clampedPercent - 0.9) / 0.1;
+    targetY = targetY * (1 - blend) + maxScroll * blend;
+  }
+
+  window.scrollTo(0, Math.max(0, Math.min(maxScroll, targetY)));
+}
+
 async function renderContent(data) {
   const generation = ++renderGeneration;
   const sameDocument = Boolean(data.documentId) && data.documentId === currentDocumentId;
@@ -535,6 +620,7 @@ async function renderContent(data) {
   try {
     content.innerHTML = data.html ?? '';
     setTheme(data.theme);
+    enableTaskCheckboxes(content);
     renderMath(content);
 
     if (sameDocument) {
@@ -543,7 +629,6 @@ async function renderContent(data) {
 
     const mermaidBlocks = collectMermaidBlocks(content);
 
-    await waitForImages();
     if (generation === renderGeneration) {
       await renderMermaidBlocks(mermaidBlocks, generation);
     }
@@ -589,6 +674,7 @@ async function preparePrint() {
     applyHighlight(code);
   }
 
+  await waitForImages();
   await new Promise((resolve) => requestAnimationFrame(() => resolve()));
 }
 
@@ -610,8 +696,7 @@ window.chrome?.webview?.addEventListener('message', async (event) => {
       setFontSize(data.size);
       break;
     case 'scroll': {
-      const max = document.documentElement.scrollHeight - window.innerHeight;
-      window.scrollTo(0, Math.max(0, Math.min(1, data.percent ?? 0)) * max);
+      scrollToSourceLine(Number(data.line), data.percent);
       break;
     }
     case 'preparePrint':
@@ -620,6 +705,44 @@ window.chrome?.webview?.addEventListener('message', async (event) => {
       break;
     default:
       break;
+  }
+});
+
+window.addEventListener('keydown', (event) => {
+  if (!event.ctrlKey || event.altKey || event.repeat) {
+    return;
+  }
+
+  const key = event.key.toLowerCase();
+  let name = null;
+
+  if (key === 'tab') {
+    name = event.shiftKey ? 'previousTab' : 'nextTab';
+  } else if (event.shiftKey) {
+    if (key === 's') {
+      name = 'saveAs';
+    } else if (key === '+' || key === '=') {
+      name = 'zoomIn';
+    }
+  } else {
+    name = {
+      '0': 'zoomReset',
+      '1': 'viewEdit',
+      '2': 'viewPreview',
+      '3': 'viewSplit',
+      ',': 'preferences',
+      '-': 'zoomOut',
+      '=': 'zoomIn',
+      n: 'new',
+      o: 'open',
+      s: 'save',
+      w: 'close',
+    }[key] ?? null;
+  }
+
+  if (name) {
+    event.preventDefault();
+    send({ type: 'shortcut', name });
   }
 });
 
@@ -667,6 +790,26 @@ document.addEventListener('click', (event) => {
 
   event.preventDefault();
   send({ type: 'link', href });
+});
+
+document.addEventListener('change', (event) => {
+  const checkbox = event.target;
+  if (!(checkbox instanceof HTMLInputElement) || checkbox.type !== 'checkbox') {
+    return;
+  }
+
+  const item = checkbox.closest('li[data-line], [data-line]');
+  const line = Number(item?.dataset.line);
+  if (!Number.isInteger(line) || line < 1) {
+    return;
+  }
+
+  send({
+    type: 'toggleTask',
+    documentId: currentDocumentId,
+    line,
+    checked: checkbox.checked,
+  });
 });
 
 document.documentElement.dataset.theme = currentTheme;

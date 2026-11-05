@@ -1,8 +1,238 @@
-﻿# 開發紀錄
+# 開發紀錄
 
 最新紀錄放最上面。每次開發工作都要更新，不要事後補寫。
 
 ---
+
+## 2026-11-05 - v0.10.13
+
+### 目標
+實作第 1～6 項高報酬編輯與同步體驗優化：分頁保留復原歷史與游標／捲動狀態、改善同步捲動流暢度與行號對齊、消除預覽破圖阻塞與純編輯模式冗餘 IPC、支援雙向行內格式／智慧貼上網址／剪貼簿貼圖／預覽勾選待辦清單，並補齊常用快捷鍵。
+
+### 變更
+- `web/editor/src/editor.js`、`IEditorHost`、`EditorHostView`、`MainViewModel`：以 `Map` 快取各分頁 `EditorState` 與 `scrollTop`，切換分頁保留 `Ctrl+Z` 歷史、游標與捲動位置；關閉分頁時送 `disposeDocument` 釋放快取。
+- `web/editor/src/editor.js`：捲動事件改為 `requestAnimationFrame` 節流並計算頂端行號 `line`；`wrapInline` 支援雙向移除標記（含 `*`／`**`／`***` 邊界判斷）；新增選取單行文字貼上網址轉連結、剪貼簿圖片貼上傳送，以及 `Ctrl+K`、`Ctrl+H`、`Ctrl+Tab`／`Ctrl+Shift+Tab` 快捷鍵與 `toggleTask` 指令。
+- `MarkdownPipelineFactory`、`MarkdownRenderer`：預覽專用 Markdig pipeline 透過 `DocumentProcessed` 為區塊與清單項目注入 1-based `data-line` 屬性（跳過會重排到底部的腳註定義，且不覆蓋標題自動產生的 `id`）。
+- `web/preview/src/preview.js`、`preview.css`、`IPreviewHost`、`PreviewHostView`：移除常態渲染中阻塞 Mermaid 與高亮的 `waitForImages()`（移至匯出 PDF 的 `preparePrint`）；依 `[data-line]` 元素做線性插值同步捲動並在末端平滑收斂至頁底；解除工作清單 checkbox `disabled` 並回傳 `toggleTask` 同步原始碼。
+- `MainViewModel`：移除純編輯模式下每 250ms 觸發全文拉取的 `ScheduleTextSync`，統一由存檔、切換與 1.5 秒自動暫存時同步全文；串接貼圖儲存與待辦清單狀態回寫。
+- `FileService`：新增 `SavePastedImageAsync`，將剪貼簿圖片以不重複檔名原子寫入文件同層的 `images/` 資料夾。
+- `MainWindow.xaml(.cs)`：新增 `Ctrl+Tab`／`Ctrl+Shift+Tab` 分頁切換加速器、「取代... (`Ctrl+H`)」選單項目與工具列連結按鈕 `Ctrl+K` 加速器。
+- `MarkdownRendererTests`、`FileServiceTests`：新增 `data-line` 屬性與貼上圖片寫檔單元測試。
+- 版號更新為 0.10.13，同步更新 README、使用指南、技術文件、CHANGELOG、RELEASE_NOTES。
+
+### 問題與解法
+- CodeMirror 6 的 `Compartment` 隨 `EditorState` 保存，若在分頁 B 改過主題或換行設定，切回分頁 A 還原快取 `EditorState` 時會殘留舊設定 → 還原 `EditorState` 後立即派送 compartment `reconfigure` 對齊目前全域狀態。
+- 若用 Markdig 內建 `UsePragmaLines()` 會改寫區塊 `id="pragma-line-..."`，覆蓋標題自動錨點；且腳註定義區塊會被搬移到 HTML 底部破壞行號單調順序 → 改以自訂 `DocumentProcessed` 寫入 `data-line` 並排除 `FootnoteGroup`／`Footnote`。
+- 對 `**粗體**` 內選取文字按 `Ctrl+I` 時，外圍字元雖為 `*` 但屬於粗體標記 → 加入前後 2～3 字元連續星號判斷，確保粗體與斜體可正常疊加成 `***粗斜體***` 及各自獨立解除。
+
+### 驗證
+- `npm --prefix web run build`：成功更新 `Assets/Editor/editor.bundle.js` 與 `Assets/Preview/preview.bundle.js`。
+- `dotnet build MdEditor.sln -c Debug`：0 警告 0 錯誤。
+- `dotnet test tests\MdEditor.Tests\MdEditor.Tests.csproj -c Debug`：48/48 通過。
+- `dotnet format MdEditor.sln --verify-no-changes`：通過。
+
+### 待辦／已知限制
+- 同步捲動仍為單向（編輯器帶動預覽），捲動預覽不會反向帶動編輯器。
+- 未儲存的新增文件因尚無目標資料夾，貼上剪貼簿圖片時會提示先儲存文件。
+- 尚未在 Windows 10 1809 與 ARM64 實機驗證。
+
+## 2026-11-05 - v0.10.12
+
+### 目標
+執行先前評估的 1～7 項小改動高效能優化，降低存檔等待、輸入時的重複 UI 更新、自動暫存 I/O 與安裝包體積，並補齊挑檔、無障礙與預覽連結安全。
+
+### 變更
+- `MainViewModel`：存檔後不再等待 `RenderPreviewNowAsync`；以文件、文字與資料夾比對略過重複預覽渲染，並在渲染成功後記錄狀態。
+- `MainViewModel`：`RenderPreviewNowAsync` 先擷取文字與資料夾快照，避免背景執行緒讀取可變狀態。
+- `DocumentViewModel`：移除未被綁定的 `CharCount`／`LineCount`／`WordCount` 變更通知。
+- `MainViewModel`：`OnDocumentPropertyChanged` 只對會影響狀態列的屬性呼叫 `UpdateStatus`，並移除 `OnEditorContentChanged` 中重複的呼叫。
+- `MainViewModel`：儲存時若最近檔案已存在且可用，不再重寫 `settings.json`。
+- `SessionDraftService`：孤兒暫存清理改為啟動載入與文件數量減少時執行，避免每次自動暫存掃描目錄。
+- `web/build.mjs`：KaTeX 只輸出 WOFF2，並移除 CSS 中的 woff／ttf fallback。
+- `DialogService`：開啟檔案挑選器改用 `SupportedFileTypes.Extensions`，補齊 `.mdown`／`.mkd`。
+- `MainWindow.xaml`：工具列格式按鈕補上 `AutomationProperties.Name`。
+- `MainViewModel`：預覽相對連結解析後限制在文件資料夾內。
+- 版號更新為 0.10.12，同步更新 README、CHANGELOG、RELEASE_NOTES。
+
+### 問題與解法
+- 存檔若同步等待預覽，會讓 `Ctrl+S` 的感覺取決於 Markdown 與 WebView 渲染時間；改為背景渲染並以文字快照比對，避免每次存檔都重建預覽 DOM。
+- 一次文字變更原本會因 `Text`、`CharCount`、`LineCount`、`WordCount`、`IsDirty` 等通知重複觸發狀態更新；移除未使用通知並縮小屬性判斷範圍後，常態輸入只保留必要更新。
+- 自動暫存每次寫入都掃描 drafts 目錄；改為啟動載入與文件被移除時清理，仍保留 `SavingWithoutDocument_DeletesOrphanDraft` 行為。
+- WebView2 支援 WOFF2，因此移除 woff／ttf 不影響公式顯示，安裝包字型由約 1.03 MB 降至 0.25 MB。
+- 相對連結以 `Path.GetFullPath` 解析後再比對文件資料夾前綴，避免 `..` 跳出資料夾；根目錄以 `Path.EndsInDirectorySeparator` 處理。
+
+### 驗證
+- `npm --prefix web install`：成功。
+- `npm --prefix web run build`：成功；`Assets/Preview/fonts` 只剩 20 個 WOFF2，CSS 無 woff／ttf 參照。
+- `dotnet build MdEditor.sln -c Debug`：0 警告 0 錯誤。
+- `dotnet test tests\MdEditor.Tests\MdEditor.Tests.csproj -c Debug`：46/46 通過。
+- `dotnet format MdEditor.sln --verify-no-changes`：通過。
+
+### 待辦／已知限制
+- 尚未以實機量測大檔存檔、連續輸入與大量分頁的體感差異。
+- 尚未實機驗證螢幕閱讀器朗讀工具列名稱。
+- 相對連結跨資料夾的行為已刻意限制在文件資料夾內，若需開啟外部檔案需另提供明確操作。
+- 仍須在 Windows 10 1809 與 ARM64 實機驗證。
+
+## 2026-11-04 - v0.10.11
+
+### 目標
+精簡編輯器與預覽的載入畫面，只顯示轉圈圖示，不顯示說明文字。
+
+### 變更
+- `EditorHostView.xaml`：移除載入畫面中的「正在準備編輯器…」文字與外層 `StackPanel`，只保留置中的 `ProgressRing`。
+- `PreviewHostView.xaml`：移除載入畫面中的「正在準備預覽…」文字與外層 `StackPanel`，只保留置中的 `ProgressRing`。
+- 保留 `ProgressRing` 的 `AutomationProperties.Name`，維持螢幕閱讀器辨識。
+- 更新版號與文件至 0.10.11。
+
+### 問題與解法
+- 載入文字會讓畫面顯得較擁擠；改為單一圖示，載入狀態仍可從轉圈動畫辨識。
+
+### 待辦／已知限制
+- 錯誤面板仍保留文字說明，僅載入狀態改為純圖示。
+
+## 2026-11-04 - v0.10.10
+
+### 目標
+讓編輯器與預覽在啟動時同時開始載入，避免預覽比編輯器晚出現。
+
+### 變更
+- `MainViewModel.InitializeAsync`：載入設定後依 `ViewMode` 同步啟動 `PreviewHost.InitializeAsync()`；編輯模式不預熱預覽。
+- `MainViewModel.LoadActiveDocumentAsync`：移除 `RenderPreviewAfterEditorReadyAsync` 與 150ms 延遲，載入文件時立即並行啟動 Preview render。
+- 保留既有 Editor 預熱、載入畫面與過期 render 防護。
+- 更新 `Directory.Build.props`、README、CHANGELOG、RELEASE_NOTES 與版號至 0.10.10。
+
+### 問題與解法
+- 先前為了降低啟動競爭，Preview 刻意延後 150ms 且等到 Editor 設定內容後才初始化，造成預覽較晚出現；改為載入設定後即初始化 Preview WebView2，並與 Editor 內容載入同時進行 render。
+- 以 `ViewMode == Edit` 作為預覽預熱條件，避免只看編輯模式時浪費 WebView2 資源。
+
+### 待辦／已知限制
+- 同時初始化兩個 WebView2 會增加啟動瞬間的 CPU 與記憶體用量，Editor 首次可輸入時間可能略增。
+- 尚未以 WPR/WPA 量測同時載入前後的差異。
+
+## 2026-11-04 - v0.10.9
+
+### 目標
+改善啟動感知速度：視窗立即以記住的大小與位置出現、初始化期間不顯示空白 WebView，並讓 Editor 更早可用。
+
+### 變更
+- `MainWindow`：新增 `ApplyInitialWindowLayout`，在視窗顯示後、ViewModel 初始化前立即套用尺寸、位置與最大化狀態。
+- `App`：啟動時預熱 WebView2 環境；視窗顯示後立即啟動 Editor 初始化，不再等待設定與工作階段載入。
+- `MainViewModel`：Editor 初始化與工作階段 draft 載入並行；作用中文件優先顯示，Preview 延後至 Editor 內容就緒後才渲染。
+- `EditorHostView`／`PreviewHostView`：WebView 上方新增主題化載入畫面，ready 後才隱藏，初始化失敗時改顯示錯誤面板。
+- `FileService`：檔案解碼、換行正規化與 SHA256 改在背景執行，避免大檔案阻塞 UI 執行緒。
+- `FileLoggerProvider`：舊日誌清理改為背景執行。
+- `web/editor`：移除 `@codemirror/language-data` 全量語言，只保留 JavaScript／TypeScript／JSX／TSX、HTML、CSS、JSON、Python、Java、C++、C#、Shell、SQL、XML 與 YAML 常用語言；`editor.bundle.js` 由約 1.62 MB 降至約 0.91 MB。
+- 更新 `Directory.Build.props`、README、CHANGELOG、RELEASE_NOTES 與版號至 0.10.9。
+
+### 問題與解法
+- 原本視窗先以預設大小顯示，等 Editor 初始化完成後才 `Resize`，造成明顯跳動；改為 `Activate` 後立即套用儲存尺寸並以旗標避免重複套用。
+- Editor 初始化原本必須等設定與工作階段載入完成才開始，WebView2 啟動成本完全串行；改為提前預熱並與 draft 載入重疊。
+- Preview 在 Editor 剛顯示時立即初始化會搶 UI 與 WebView2 資源；改為延後 150ms，且 Editor 模式不初始化 Preview。
+- 大檔案還原時 SHA256 與解碼可能在 UI 執行緒完成；改於 `Task.Run` 內處理，維持 UI 可回應。
+- 只保留常用語言可顯著縮小 bundle，但冷門語言（例如 Rust、Go、PHP）的程式碼區塊不再語法高亮。
+
+### 待辦／已知限制
+- 尚未以 WPR/WPA 量測冷啟動與暖啟動的前後差異。
+- 尚未在 Windows 10 1809、大量分頁與大檔案情境實機驗證載入畫面與背景還原。
+- 若需要冷門語言高亮，可再改為動態載入對應語言 chunk。
+
+## 2026-11-04 - v0.10.8
+
+### 目標
+縮短視窗顯示後到 Editor 可輸入的等待時間，並修正切到預覽後 `Ctrl+1/2/3` 無法切換檢視的問題。
+
+### 變更
+- `MainViewModel`：Editor 載入目前文件後立即解除輸入保護，Preview 改為背景渲染。
+- `MainViewModel`：工作階段先還原目前文件，其餘分頁以最多兩個並行工作背景載入；關閉時會等待背景還原完成。
+- `MainViewModel`：背景還原期間暫停工作階段寫入，完成後再保存完整 manifest，並避免與手動開檔產生重複文件。
+- `MainViewModel`：最近檔案存在性檢查移出啟動關鍵路徑，失敗時只記錄警告。
+- `IPreviewHost`／`PreviewHostView`／`preview.js`：新增快捷鍵訊息轉送，預覽模式支援檢視、檔案操作、偏好設定與縮放快捷鍵。
+- `EditorHostView`／`editor.js`：`setContent` 新增完成回覆，確認 CodeMirror 已套用內容後才允許輸入。
+- `EditorHostView`／`editor.js`：關閉保存期間將 CodeMirror 切為唯讀，關閉失敗時恢復編輯與焦點。
+- 重新建置 `src/MdEditor/Assets` WebView 資產，並更新文件與版號至 0.10.8。
+
+### 問題與解法
+- `LoadActiveDocumentAsync` 原本在 `_isLoadingDocument` 為 true 時等待完整 Preview render，期間輸入事件會被忽略；改為只等待 Editor 設定內容，Preview 非同步完成。
+- Preview WebView2 取得焦點後，WinUI 根層的 `KeyboardAccelerator` 收不到按鍵；改由 `preview.js` 攔截應用程式快捷鍵並透過 WebMessage 交給共用處理器。
+- 一次還原所有分頁會延後目前文件可編輯時間；改為目前文件優先，其餘背景限量還原並在加入前排除重複文件。
+- 背景還原期間若先保存工作階段，可能把尚未加入的 draft 當成孤立檔案刪除；加入還原閘門，完成前不覆寫 manifest。
+- 關閉等待背景還原時仍可能收到最後輸入；關閉流程先切換唯讀，最後再擷取 Editor 內容並保存工作階段。
+
+### 待辦／已知限制
+- 啟動改善尚未以 WPR/WPA 量測冷啟動與暖啟動時間。
+- 尚未在大量檔案、不可用網路路徑及 Windows 10 1809 實機驗證背景還原。
+
+## 2026-11-04 - v0.10.7
+
+### 目標
+重新整理視窗與檢視操作的位置，讓上方選單負責視窗尺寸，工具列只保留固定圖示的檢視切換。
+
+### 變更
+- `MainWindow.xaml`：在設定右側新增「視窗 (W)」選單，提供精簡寬度、舒適寬度與最大化。
+- `MainWindow.xaml`：移除工具列的視窗按鈕；檢視循環按鈕移至格式按鈕列末端，以分隔線自成群組。
+- `MainWindow.xaml`：檢視按鈕改用固定 `View` 圖示，點擊仍依序切換編輯、預覽與並排模式。
+- README、使用指南、CHANGELOG、RELEASE_NOTES、建置文件與版號更新為 0.10.7。
+
+### 問題與解法
+- 視窗尺寸屬於視窗層級操作，放在格式工具列會混淆用途，因此改為獨立的上方選單。
+- 檢視按鈕不再以動態文字占用寬度，改用固定圖示並保留動態 ToolTip 說明目前模式。
+
+### 待辦／已知限制
+- 尚未在 Windows 10 1809 與觸控模式實機驗證選單及工具列配置。
+
+## 2026-11-04 - v0.10.6
+
+### 目標
+精確還原貼齊螢幕工作區的視窗高度，並讓精簡與舒適模式只調整視窗寬度。
+
+### 變更
+- `MainWindow.xaml.cs`：啟動還原尺寸上限改為完整工作區，不再預留 80 像素邊界。
+- `MainWindow.xaml.cs`：60% 與 80% 模式只依工作區比例調整寬度，保留原有高度及垂直位置。
+- `MainWindow.xaml`：選單與提示文字改為「精簡寬度」與「舒適寬度」。
+- README、使用指南、CHANGELOG、RELEASE_NOTES、建置文件與版號更新為 0.10.6。
+
+### 問題與解法
+- 視窗高度雖有正確保存，但啟動時上限使用 `workArea.Height - 80`，導致重啟後底部固定留下距離；改用完整工作區高度。
+- 從最大化切回比例寬度時，使用最大化前記錄的一般視窗高度，避免高度一併變成工作區高度。
+
+### 待辦／已知限制
+- 尚未在不同 DPI、工作列位置及 Windows 10 1809 實機驗證。
+
+## 2026-11-04 - v0.10.5
+
+### 目標
+提供工具列快速切換視窗大小，讓使用者能依目前螢幕工作區快速選擇精簡、舒適或最大化版面。
+
+### 變更
+- `MainWindow.xaml`：工具列右側新增「視窗」按鈕與精簡（60%）、舒適（80%）、最大化選單。
+- `MainWindow.xaml.cs`：依視窗所在螢幕的工作區計算尺寸，切換後置中並沿用 800×500 最小限制。
+- README、使用指南、CHANGELOG、RELEASE_NOTES 與版號更新為 0.10.5。
+
+### 問題與解法
+- 固定像素尺寸在不同解析度與 DPI 下體驗不一致，因此改用目前螢幕工作區比例計算。
+- 最大化狀態無法直接調整一般視窗尺寸，因此切換至精簡或舒適時先還原，再調整尺寸與位置。
+
+### 待辦／已知限制
+- 尚未在不同 DPI、工作列位置及 Windows 10 1809 實機驗證。
+
+## 2026-11-04 - v0.10.4
+
+### 目標
+從 Windows 檔案總管開啟 Markdown 檔案時，讓既有的 MdEditor 視窗還原並切換到最前景。
+
+### 變更
+- `App`：次要執行個體在轉送啟用參數前，將前景視窗權限交給主要執行個體。
+- `WindowActivationHelper`：新增最小化視窗還原、WinUI 視窗啟用與 Win32 前景切換。
+- 文件與版號更新為 0.10.4。
+
+### 問題與解法
+- `RedirectActivationToAsync` 只會轉送啟用資料，既有執行個體不一定有權限切換前景，因此由檔案總管啟動的次要執行個體先呼叫 `AllowSetForegroundWindow`。
+- 原先採用 `LibraryImport` 會要求專案啟用 unsafe 編譯；此功能改用 `DllImport`，避免擴大專案編譯權限。
+
+### 待辦／已知限制
+- 前景切換仍受 Windows 的使用者焦點政策控制；API 失敗時會記錄警告，但不會阻止檔案開啟。
+- 尚未在 Windows 10 1809 與 ARM64 實機驗證。
 
 ## 2026-11-04 - v0.10.3
 

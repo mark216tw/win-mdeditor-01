@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.Windows.AppLifecycle;
 using VibeCode.MdEditor.Core.Helpers;
 using VibeCode.MdEditor.Core.Services;
+using VibeCode.MdEditor.Helpers;
 using VibeCode.MdEditor.Models;
 using VibeCode.MdEditor.Services;
 using VibeCode.MdEditor.ViewModels;
@@ -62,6 +63,11 @@ public partial class App : Application
 
             if (!mainInstance.IsCurrent)
             {
+                if (!WindowActivationHelper.AllowSetForeground(mainInstance.ProcessId))
+                {
+                    _logger.LogWarning("無法將前景視窗權限轉交給主要執行個體。");
+                }
+
                 await mainInstance.RedirectActivationToAsync(activation);
                 _host.Dispose();
                 Exit();
@@ -69,6 +75,8 @@ public partial class App : Application
             }
 
             mainInstance.Activated += OnInstanceActivated;
+
+            _ = WebViewEnvironmentProvider.GetAsync();
 
             await ApplyInitialThemeAsync();
 
@@ -87,6 +95,8 @@ public partial class App : Application
             };
 
             _mainWindow.Activate();
+            _mainWindow.ApplyInitialWindowLayout();
+            _mainWindow.PrewarmEditor();
 
             var filePath = LaunchArguments.TryGetFilePath(
                 Environment.GetCommandLineArgs().Skip(1));
@@ -97,7 +107,7 @@ public partial class App : Application
             {
                 var pending = _pendingFile;
                 _pendingFile = null;
-                _mainWindow.Activate();
+                BringToForeground(_mainWindow);
                 await _mainWindow.ViewModel.OpenFileAsync(pending);
             }
         }
@@ -154,12 +164,20 @@ public partial class App : Application
     {
         try
         {
-            window.Activate();
+            BringToForeground(window);
             await window.ViewModel.OpenFileAsync(filePath);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "開啟啟動參數檔案失敗：{Path}", filePath);
+        }
+    }
+
+    private void BringToForeground(MainWindow window)
+    {
+        if (!WindowActivationHelper.BringToForeground(window))
+        {
+            _logger.LogWarning("無法將主要視窗切換到前景。");
         }
     }
 

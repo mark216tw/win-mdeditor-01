@@ -17,7 +17,7 @@ public sealed class MarkdownRendererTests
         Assert.Contains("<h1", html);
         Assert.Contains("<strong>粗體</strong>", html);
         Assert.Contains("<del>刪除</del>", html);
-        Assert.Contains("<table>", html);
+        Assert.Contains("<table", html);
     }
 
     [Fact]
@@ -68,7 +68,7 @@ public sealed class MarkdownRendererTests
             null);
 
         Assert.Contains("<span class=\"math\">\\(E = mc^2\\)</span>", html);
-        Assert.Contains("<div class=\"math\">", html);
+        Assert.Contains("<div class=\"math\"", html);
         Assert.Contains("\\int_0^1 x^2 dx", html);
     }
 
@@ -79,8 +79,22 @@ public sealed class MarkdownRendererTests
             "```mermaid\nflowchart TD\n  A[開始] --> B[結束]\n```\n",
             null);
 
-        Assert.Contains("<pre class=\"mermaid\">", html);
+        Assert.Contains("<pre class=\"mermaid\"", html);
         Assert.Contains("flowchart TD", html);
         Assert.Contains("A[開始] --> B[結束]", html);
+    }
+
+    [Fact]
+    public void Render_AttachesOneBasedSourceLineAttributesWithoutClobberingHeadingId()
+    {
+        var html = _renderer.Render(
+            "# Section Title\n\nParagraph\n\n- [ ] Task one\n- [x] Task two\n",
+            null);
+
+        Assert.Contains("id=\"section-title\"", html);
+        Assert.Contains("data-line=\"1\"", html);
+        Assert.Contains("data-line=\"3\"", html);
+        Assert.Contains("data-line=\"5\"", html);
+        Assert.Contains("data-line=\"6\"", html);
     }
 }

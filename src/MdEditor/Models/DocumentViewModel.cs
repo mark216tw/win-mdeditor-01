@@ -107,13 +107,6 @@ public sealed partial class DocumentViewModel : ObservableObject
         OnPropertyChanged(nameof(FileDirectory));
     }
 
-    partial void OnTextChanged(string value)
-    {
-        OnPropertyChanged(nameof(CharCount));
-        OnPropertyChanged(nameof(LineCount));
-        OnPropertyChanged(nameof(WordCount));
-    }
-
     partial void OnIsDirtyChanged(bool value)
     {
         OnPropertyChanged(nameof(DirtyVisibility));

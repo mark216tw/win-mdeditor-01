@@ -76,4 +76,26 @@ public sealed class FileServiceTests
 
         Assert.NotEqual(first.Hash, second.Hash);
     }
+
+    [Fact]
+    public async Task SavePastedImageAsync_WritesUniqueFilesUnderImagesDirectory()
+    {
+        using var temp = new TempDirectory();
+        var bytes = new byte[] { 0x89, 0x50, 0x4E, 0x47 };
+
+        var firstRelative = await _service.SavePastedImageAsync(temp.DirectoryPath, bytes, "image/png");
+        var secondRelative = await _service.SavePastedImageAsync(temp.DirectoryPath, bytes, "image/png");
+        var thirdRelative = await _service.SavePastedImageAsync(temp.DirectoryPath, bytes, "image/jpeg; charset=utf-8");
+
+        Assert.StartsWith("images/paste-", firstRelative, StringComparison.Ordinal);
+        Assert.EndsWith(".png", firstRelative, StringComparison.Ordinal);
+        Assert.StartsWith("images/paste-", secondRelative, StringComparison.Ordinal);
+        Assert.EndsWith(".png", secondRelative, StringComparison.Ordinal);
+        Assert.NotEqual(firstRelative, secondRelative);
+        Assert.EndsWith(".jpg", thirdRelative, StringComparison.Ordinal);
+
+        var firstFullPath = Path.Combine(temp.DirectoryPath, firstRelative.Replace('/', Path.DirectorySeparatorChar));
+        Assert.True(File.Exists(firstFullPath));
+        Assert.Equal(bytes, await File.ReadAllBytesAsync(firstFullPath));
+    }
 }

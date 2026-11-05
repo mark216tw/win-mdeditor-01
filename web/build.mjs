@@ -1,4 +1,4 @@
-import { copyFile, cp, mkdir, rm } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import * as esbuild from 'esbuild';
 
@@ -39,16 +39,26 @@ async function build() {
   await copyFile(
     resolve(root, 'web/node_modules/mermaid/dist/mermaid.min.js'),
     resolve(assets, 'Preview/mermaid.min.js'));
+  const katexCssPath = resolve(assets, 'Preview/katex.min.css');
   await copyFile(
     resolve(root, 'web/node_modules/katex/dist/katex.min.css'),
-    resolve(assets, 'Preview/katex.min.css'));
+    katexCssPath);
+
+  const katexCss = (await readFile(katexCssPath, 'utf8'))
+    .replace(/,url\(fonts\/[^)]+\.woff\) format\("woff"\)/g, '')
+    .replace(/,url\(fonts\/[^)]+\.ttf\) format\("truetype"\)/g, '');
+  await writeFile(katexCssPath, katexCss);
 
   const katexFonts = resolve(assets, 'Preview/fonts');
   await rm(katexFonts, { recursive: true, force: true });
-  await cp(
-    resolve(root, 'web/node_modules/katex/dist/fonts'),
-    katexFonts,
-    { recursive: true });
+  await mkdir(katexFonts, { recursive: true });
+
+  const sourceFonts = resolve(root, 'web/node_modules/katex/dist/fonts');
+  for (const file of await readdir(sourceFonts)) {
+    if (file.endsWith('.woff2')) {
+      await copyFile(resolve(sourceFonts, file), resolve(katexFonts, file));
+    }
+  }
 
   console.log('Web assets built.');
 }

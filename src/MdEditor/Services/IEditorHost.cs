@@ -4,7 +4,7 @@ public sealed record EditorContentChangedEventArgs(string DocumentId, string? Te
 
 public sealed record EditorSelectionChangedEventArgs(string DocumentId, int Line, int Column, int SelectionLength);
 
-public sealed record EditorScrollEventArgs(string DocumentId, double Percent);
+public sealed record EditorScrollEventArgs(string DocumentId, double Percent, double Line = 0);
 
 public interface IEditorHost
 {
@@ -18,11 +18,19 @@ public interface IEditorHost
 
     event EventHandler<double>? FontSizeChanged;
 
+    event EventHandler<EditorImagePasteEventArgs>? ImagePasted;
+
     Task InitializeAsync();
 
     Task SetContentAsync(string text, string documentId);
 
     Task<string> GetContentAsync(string documentId);
+
+    Task DisposeDocumentAsync(string documentId);
+
+    Task InsertTextAsync(string documentId, string text);
+
+    Task ToggleTaskLineAsync(string documentId, int line, bool isChecked);
 
     Task ExecuteCommandAsync(string command);
 
@@ -33,6 +41,8 @@ public interface IEditorHost
     Task SetFontSizeAsync(double size);
 
     Task SetIncludeTextInChangeAsync(bool enabled);
+
+    Task SetReadOnlyAsync(bool enabled);
 
     Task FocusAsync();
 }

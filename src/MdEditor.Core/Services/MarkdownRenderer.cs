@@ -13,7 +13,7 @@ public sealed partial class MarkdownRenderer : IMarkdownRenderer
     private readonly MarkdownPipeline _pipeline;
 
     public MarkdownRenderer()
-        : this(MarkdownPipelineFactory.Create())
+        : this(MarkdownPipelineFactory.Create(includeLineNumbers: true))
     {
     }
 

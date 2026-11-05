@@ -24,7 +24,11 @@ public sealed partial class PreviewHostView : UserControl, IPreviewHost
 
     public event EventHandler<string>? LinkRequested;
 
+    public event EventHandler<string>? ShortcutRequested;
+
     public event EventHandler<double>? FontSizeChanged;
+
+    public event EventHandler<PreviewTaskToggledEventArgs>? TaskToggled;
 
     public Task InitializeAsync()
     {
@@ -115,7 +119,7 @@ public sealed partial class PreviewHostView : UserControl, IPreviewHost
         });
     }
 
-    public async Task SetScrollPercentAsync(double percent)
+    public async Task SetScrollPercentAsync(double percent, double line = 0)
     {
         if (_initializeTask is null)
         {
@@ -127,6 +131,7 @@ public sealed partial class PreviewHostView : UserControl, IPreviewHost
         {
             type = "scroll",
             percent,
+            line,
         });
     }
 
@@ -207,6 +212,7 @@ public sealed partial class PreviewHostView : UserControl, IPreviewHost
 
             WebView.Source = new Uri("https://app.local/Preview/preview.html");
             await _readySource.Task.WaitAsync(TimeSpan.FromSeconds(15));
+            LoadingPanel.Visibility = Visibility.Collapsed;
             Post(new { type = "theme", theme = _theme });
             Post(new { type = "font", size = _fontSize });
         }
@@ -315,8 +321,19 @@ public sealed partial class PreviewHostView : UserControl, IPreviewHost
                     LinkRequested?.Invoke(this, GetString(root, "href"));
                     break;
 
+                case "shortcut":
+                    ShortcutRequested?.Invoke(this, GetString(root, "name"));
+                    break;
+
                 case "fontSize":
                     FontSizeChanged?.Invoke(this, GetDouble(root, "size"));
+                    break;
+
+                case "toggleTask":
+                    TaskToggled?.Invoke(this, new PreviewTaskToggledEventArgs(
+                        GetString(root, "documentId"),
+                        GetInt32(root, "line"),
+                        GetBoolean(root, "checked")));
                     break;
             }
         }
@@ -344,6 +361,7 @@ public sealed partial class PreviewHostView : UserControl, IPreviewHost
 
     private void ShowError(string message)
     {
+        LoadingPanel.Visibility = Visibility.Collapsed;
         ErrorText.Text = message;
         ErrorPanel.Visibility = Visibility.Visible;
     }
@@ -360,5 +378,19 @@ public sealed partial class PreviewHostView : UserControl, IPreviewHost
         return element.TryGetProperty(name, out var property) && property.TryGetDouble(out var value)
             ? value
             : 0;
+    }
+
+    private static int GetInt32(JsonElement element, string name)
+    {
+        return element.TryGetProperty(name, out var property) && property.TryGetInt32(out var value)
+            ? value
+            : 0;
+    }
+
+    private static bool GetBoolean(JsonElement element, string name)
+    {
+        return element.TryGetProperty(name, out var property) &&
+               (property.ValueKind == JsonValueKind.True || property.ValueKind == JsonValueKind.False) &&
+               property.GetBoolean();
     }
 }

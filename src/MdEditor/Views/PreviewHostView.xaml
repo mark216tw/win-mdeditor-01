@@ -8,6 +8,17 @@
     <Grid>
         <WebView2 x:Name="WebView" />
         <Grid
+            x:Name="LoadingPanel"
+            Background="{ThemeResource SolidBackgroundFillColorBaseBrush}">
+            <ProgressRing
+                Width="28"
+                Height="28"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                AutomationProperties.Name="預覽載入中"
+                IsActive="True" />
+        </Grid>
+        <Grid
             x:Name="ErrorPanel"
             Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"
             Visibility="Collapsed">

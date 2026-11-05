@@ -20,6 +20,12 @@ public interface IFileService
 
     Task<FileStamp> ComputeStampAsync(string path, CancellationToken cancellationToken = default);
 
+    Task<string> SavePastedImageAsync(
+        string documentDirectory,
+        byte[] bytes,
+        string? mimeType,
+        CancellationToken cancellationToken = default);
+
     Task<bool> ExistsAsync(string path, CancellationToken cancellationToken = default);
 }
 
@@ -34,22 +40,28 @@ public sealed class FileService : IFileService
     {
         var fullPath = Path.GetFullPath(path);
         var bytes = await File.ReadAllBytesAsync(fullPath, cancellationToken).ConfigureAwait(false);
-        var hash = Convert.ToHexString(SHA256.HashData(bytes));
-        var lastWrite = File.GetLastWriteTimeUtc(fullPath);
 
-        var decoded = Decode(bytes);
-        var lineEnding = DetectLineEnding(decoded.Text);
-        var normalized = decoded.Text.Replace("\r\n", "\n").Replace('\r', '\n');
+        return await Task.Run(
+            () =>
+            {
+                var hash = Convert.ToHexString(SHA256.HashData(bytes));
+                var lastWrite = File.GetLastWriteTimeUtc(fullPath);
 
-        return new LoadedDocument(
-            normalized,
-            decoded.EncodingName,
-            decoded.CodePage,
-            decoded.HasBom,
-            lineEnding,
-            hash,
-            new DateTimeOffset(lastWrite, TimeSpan.Zero),
-            bytes.Length);
+                var decoded = Decode(bytes);
+                var lineEnding = DetectLineEnding(decoded.Text);
+                var normalized = decoded.Text.Replace("\r\n", "\n").Replace('\r', '\n');
+
+                return new LoadedDocument(
+                    normalized,
+                    decoded.EncodingName,
+                    decoded.CodePage,
+                    decoded.HasBom,
+                    lineEnding,
+                    hash,
+                    new DateTimeOffset(lastWrite, TimeSpan.Zero),
+                    bytes.Length);
+            },
+            cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<FileStamp> SaveAsync(
@@ -135,17 +147,87 @@ public sealed class FileService : IFileService
     {
         var fullPath = Path.GetFullPath(path);
         var bytes = await File.ReadAllBytesAsync(fullPath, cancellationToken).ConfigureAwait(false);
-        var lastWrite = File.GetLastWriteTimeUtc(fullPath);
-        return new FileStamp(
-            Convert.ToHexString(SHA256.HashData(bytes)),
-            new DateTimeOffset(lastWrite, TimeSpan.Zero),
-            bytes.Length);
+
+        return await Task.Run(
+            () =>
+            {
+                var lastWrite = File.GetLastWriteTimeUtc(fullPath);
+                return new FileStamp(
+                    Convert.ToHexString(SHA256.HashData(bytes)),
+                    new DateTimeOffset(lastWrite, TimeSpan.Zero),
+                    bytes.Length);
+            },
+            cancellationToken).ConfigureAwait(false);
     }
 
     public Task<bool> ExistsAsync(string path, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         return Task.FromResult(File.Exists(Path.GetFullPath(path)));
+    }
+
+    public async Task<string> SavePastedImageAsync(
+        string documentDirectory,
+        byte[] bytes,
+        string? mimeType,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(documentDirectory))
+        {
+            throw new ArgumentException("必須提供文件所在資料夾。", nameof(documentDirectory));
+        }
+
+        if (bytes is null || bytes.Length == 0)
+        {
+            throw new ArgumentException("圖片內容不可為空。", nameof(bytes));
+        }
+
+        var fullDirectory = Path.GetFullPath(documentDirectory);
+        var imagesDirectory = Path.Combine(fullDirectory, "images");
+        Directory.CreateDirectory(imagesDirectory);
+
+        var extension = ResolveImageExtension(mimeType);
+        var baseName = $"paste-{DateTime.Now:yyyyMMdd-HHmmss}";
+
+        for (var attempt = 0; attempt < 1000; attempt++)
+        {
+            var fileName = attempt == 0
+                ? $"{baseName}{extension}"
+                : $"{baseName}-{attempt}{extension}";
+            var fullPath = Path.Combine(imagesDirectory, fileName);
+
+            try
+            {
+                await using var stream = new FileStream(
+                    fullPath,
+                    FileMode.CreateNew,
+                    FileAccess.Write,
+                    FileShare.None,
+                    4096,
+                    FileOptions.Asynchronous);
+                await stream.WriteAsync(bytes, cancellationToken).ConfigureAwait(false);
+                await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
+                return $"images/{fileName}";
+            }
+            catch (IOException) when (File.Exists(fullPath))
+            {
+            }
+        }
+
+        throw new IOException("無法建立唯一的貼上圖片檔案名稱。");
+    }
+
+    private static string ResolveImageExtension(string? mimeType)
+    {
+        var normalized = mimeType?.Split(';')[0].Trim().ToLowerInvariant();
+        return normalized switch
+        {
+            "image/jpeg" or "image/jpg" => ".jpg",
+            "image/gif" => ".gif",
+            "image/webp" => ".webp",
+            "image/bmp" => ".bmp",
+            _ => ".png",
+        };
     }
 
     private static DecodedText Decode(byte[] bytes)

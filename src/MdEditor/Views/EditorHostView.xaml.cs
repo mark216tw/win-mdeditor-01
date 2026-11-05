@@ -10,6 +10,7 @@ namespace VibeCode.MdEditor.Views;
 public sealed partial class EditorHostView : UserControl, IEditorHost
 {
     private readonly Dictionary<string, TaskCompletionSource<string>> _contentRequests = new();
+    private readonly Dictionary<string, TaskCompletionSource> _setContentRequests = new();
     private Task? _initializeTask;
     private TaskCompletionSource? _readySource;
     private string _theme = "light";
@@ -32,6 +33,8 @@ public sealed partial class EditorHostView : UserControl, IEditorHost
 
     public event EventHandler<double>? FontSizeChanged;
 
+    public event EventHandler<EditorImagePasteEventArgs>? ImagePasted;
+
     public Task InitializeAsync()
     {
         return _initializeTask ??= InitializeCoreAsync();
@@ -40,12 +43,26 @@ public sealed partial class EditorHostView : UserControl, IEditorHost
     public async Task SetContentAsync(string text, string documentId)
     {
         await InitializeAsync();
+        var requestId = Guid.NewGuid().ToString("N");
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _setContentRequests[requestId] = completion;
+
         Post(new
         {
             type = "setContent",
             text,
             documentId,
+            id = requestId,
         });
+
+        try
+        {
+            await completion.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        finally
+        {
+            _setContentRequests.Remove(requestId);
+        }
     }
 
     public async Task<string> GetContentAsync(string documentId)
@@ -71,6 +88,44 @@ public sealed partial class EditorHostView : UserControl, IEditorHost
         {
             _contentRequests.Remove(requestId);
         }
+    }
+
+    public async Task DisposeDocumentAsync(string documentId)
+    {
+        if (_initializeTask is null)
+        {
+            return;
+        }
+
+        await InitializeAsync();
+        Post(new
+        {
+            type = "disposeDocument",
+            documentId,
+        });
+    }
+
+    public async Task InsertTextAsync(string documentId, string text)
+    {
+        await InitializeAsync();
+        Post(new
+        {
+            type = "insertText",
+            documentId,
+            text,
+        });
+    }
+
+    public async Task ToggleTaskLineAsync(string documentId, int line, bool isChecked)
+    {
+        await InitializeAsync();
+        Post(new
+        {
+            type = "toggleTask",
+            documentId,
+            line,
+            @checked = isChecked,
+        });
     }
 
     public async Task ExecuteCommandAsync(string command)
@@ -152,6 +207,16 @@ public sealed partial class EditorHostView : UserControl, IEditorHost
         });
     }
 
+    public async Task SetReadOnlyAsync(bool enabled)
+    {
+        await InitializeAsync();
+        Post(new
+        {
+            type = "readOnly",
+            enabled,
+        });
+    }
+
     public async Task FocusAsync()
     {
         await InitializeAsync();
@@ -188,6 +253,7 @@ public sealed partial class EditorHostView : UserControl, IEditorHost
             WebView.Source = new Uri("https://app.local/Editor/editor.html");
 
             await _readySource.Task.WaitAsync(TimeSpan.FromSeconds(15));
+            LoadingPanel.Visibility = Visibility.Collapsed;
 
             Post(new { type = "theme", theme = _theme });
             Post(new { type = "wordWrap", enabled = _wordWrap });
@@ -264,7 +330,15 @@ public sealed partial class EditorHostView : UserControl, IEditorHost
                 case "scroll":
                     ScrollChanged?.Invoke(this, new EditorScrollEventArgs(
                         GetString(root, "documentId"),
-                        GetDouble(root, "percent")));
+                        GetDouble(root, "percent"),
+                        GetDouble(root, "line")));
+                    break;
+
+                case "pasteImage":
+                    ImagePasted?.Invoke(this, new EditorImagePasteEventArgs(
+                        GetString(root, "documentId"),
+                        GetString(root, "mimeType"),
+                        GetString(root, "base64")));
                     break;
 
                 case "shortcut":
@@ -281,6 +355,17 @@ public sealed partial class EditorHostView : UserControl, IEditorHost
                         if (_contentRequests.TryGetValue(requestId, out var completion))
                         {
                             completion.TrySetResult(GetString(root, "text"));
+                        }
+
+                        break;
+                    }
+
+                case "contentSet":
+                    {
+                        var requestId = GetString(root, "id");
+                        if (_setContentRequests.TryGetValue(requestId, out var completion))
+                        {
+                            completion.TrySetResult();
                         }
 
                         break;
@@ -311,6 +396,7 @@ public sealed partial class EditorHostView : UserControl, IEditorHost
 
     private void ShowError(string message)
     {
+        LoadingPanel.Visibility = Visibility.Collapsed;
         ErrorText.Text = message;
         ErrorPanel.Visibility = Visibility.Visible;
     }

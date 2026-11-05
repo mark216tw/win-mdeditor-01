@@ -19,6 +19,11 @@ namespace VibeCode.MdEditor;
 
 public sealed partial class MainWindow : Window
 {
+    private const int MinimumWindowWidth = 800;
+    private const int MinimumWindowHeight = 500;
+    private const double CompactWindowScale = 0.6;
+    private const double ComfortableWindowScale = 0.8;
+
     private readonly IDialogService _dialogs;
     private readonly IUiDispatcher _dispatcher;
     private readonly IFileAssociationService _fileAssociations;
@@ -27,7 +32,9 @@ public sealed partial class MainWindow : Window
     private SizeInt32 _lastNormalSize;
     private PointInt32 _lastNormalPosition;
     private bool _syncingTabs;
+    private bool _isClosing;
     private bool _allowClose;
+    private bool _initialLayoutApplied;
 
     public MainWindow(
         MainViewModel viewModel,
@@ -77,13 +84,11 @@ public sealed partial class MainWindow : Window
     {
         _dialogs.Initialize(this);
         _dispatcher.Initialize(DispatcherQueue);
+        ApplyInitialWindowLayout();
 
         try
         {
             await ViewModel.InitializeAsync(EditorHost, PreviewHost, filePath);
-
-            ApplyWindowSizeAndCenter();
-            RestoreWindowState();
 
             ApplyViewMode();
             SyncTabSelection();
@@ -94,6 +99,23 @@ public sealed partial class MainWindow : Window
         {
             await _dialogs.ShowMessageAsync("啟動失敗", ex.Message);
         }
+    }
+
+    public void ApplyInitialWindowLayout()
+    {
+        if (_initialLayoutApplied)
+        {
+            return;
+        }
+
+        _initialLayoutApplied = true;
+        ApplyWindowSizeAndCenter();
+        RestoreWindowState();
+    }
+
+    public void PrewarmEditor()
+    {
+        _ = EditorHost.InitializeAsync();
     }
 
     private void AddPreferencesAccelerator()
@@ -123,12 +145,12 @@ public sealed partial class MainWindow : Window
 
         var width = Math.Clamp(
             (int)size.Width,
-            800,
-            Math.Max(800, workArea.Width - 80));
+            MinimumWindowWidth,
+            Math.Max(MinimumWindowWidth, workArea.Width));
         var height = Math.Clamp(
             (int)size.Height,
-            500,
-            Math.Max(500, workArea.Height - 80));
+            MinimumWindowHeight,
+            Math.Max(MinimumWindowHeight, workArea.Height));
 
         int x;
         int y;
@@ -152,10 +174,39 @@ public sealed partial class MainWindow : Window
 
         if (AppWindow.Presenter is OverlappedPresenter presenter)
         {
-            presenter.PreferredMinimumWidth = 800;
-            presenter.PreferredMinimumHeight = 500;
+            presenter.PreferredMinimumWidth = MinimumWindowWidth;
+            presenter.PreferredMinimumHeight = MinimumWindowHeight;
         }
 
+        AppWindow.Resize(new SizeInt32(width, height));
+        AppWindow.Move(new PointInt32(x, y));
+
+        _lastNormalSize = new SizeInt32(width, height);
+        _lastNormalPosition = new PointInt32(x, y);
+    }
+
+    private void ResizeWindowWidthToWorkArea(double scale)
+    {
+        if (AppWindow.Presenter is not OverlappedPresenter presenter)
+        {
+            return;
+        }
+
+        var workArea = DisplayArea
+            .GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Primary)
+            .WorkArea;
+        var width = Math.Clamp(
+            (int)Math.Round(workArea.Width * scale),
+            MinimumWindowWidth,
+            Math.Max(MinimumWindowWidth, workArea.Width));
+        var height = _lastNormalSize.Height;
+        var x = workArea.X + (workArea.Width - width) / 2;
+        var y = Math.Clamp(
+            _lastNormalPosition.Y,
+            workArea.Y,
+            workArea.Y + Math.Max(0, workArea.Height - height));
+
+        presenter.Restore();
         AppWindow.Resize(new SizeInt32(width, height));
         AppWindow.Move(new PointInt32(x, y));
 
@@ -681,56 +732,136 @@ public sealed partial class MainWindow : Window
 
     private void NewAccelerator_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
     {
-        args.Handled = true;
+        if (HandleAccelerator(args))
+        {
+            return;
+        }
+
         ViewModel.NewDocumentCommand.Execute(null);
     }
 
     private void OpenAccelerator_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
     {
-        args.Handled = true;
+        if (HandleAccelerator(args))
+        {
+            return;
+        }
+
         ViewModel.OpenDocumentCommand.Execute(null);
     }
 
     private void SaveAccelerator_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
     {
-        args.Handled = true;
+        if (HandleAccelerator(args))
+        {
+            return;
+        }
+
         ViewModel.SaveCommand.Execute(null);
     }
 
     private void SaveAsAccelerator_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
     {
-        args.Handled = true;
+        if (HandleAccelerator(args))
+        {
+            return;
+        }
+
         ViewModel.SaveAsCommand.Execute(null);
     }
 
     private void CloseDocumentAccelerator_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
     {
-        args.Handled = true;
+        if (HandleAccelerator(args))
+        {
+            return;
+        }
+
         ViewModel.CloseActiveDocumentCommand.Execute(null);
     }
 
     private void ViewEditAccelerator_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
     {
-        args.Handled = true;
+        if (HandleAccelerator(args))
+        {
+            return;
+        }
+
         ViewModel.SetViewModeCommand.Execute("Edit");
     }
 
     private void ViewPreviewAccelerator_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
     {
-        args.Handled = true;
+        if (HandleAccelerator(args))
+        {
+            return;
+        }
+
         ViewModel.SetViewModeCommand.Execute("Preview");
     }
 
     private void ViewSplitAccelerator_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
     {
-        args.Handled = true;
+        if (HandleAccelerator(args))
+        {
+            return;
+        }
+
         ViewModel.SetViewModeCommand.Execute("Split");
+    }
+
+    private void NextTabAccelerator_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        if (HandleAccelerator(args))
+        {
+            return;
+        }
+
+        _ = ViewModel.SelectAdjacentDocumentAsync(1);
+    }
+
+    private void PreviousTabAccelerator_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        if (HandleAccelerator(args))
+        {
+            return;
+        }
+
+        _ = ViewModel.SelectAdjacentDocumentAsync(-1);
     }
 
     private void PreferencesAccelerator_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
     {
-        args.Handled = true;
+        if (HandleAccelerator(args))
+        {
+            return;
+        }
+
         _ = ShowPreferencesAsync();
+    }
+
+    private bool HandleAccelerator(KeyboardAcceleratorInvokedEventArgs args)
+    {
+        args.Handled = true;
+        return _isClosing;
+    }
+
+    private void CompactWindowSizeItem_Click(object sender, RoutedEventArgs e)
+    {
+        ResizeWindowWidthToWorkArea(CompactWindowScale);
+    }
+
+    private void ComfortableWindowSizeItem_Click(object sender, RoutedEventArgs e)
+    {
+        ResizeWindowWidthToWorkArea(ComfortableWindowScale);
+    }
+
+    private void MaximizeWindowItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (AppWindow.Presenter is OverlappedPresenter presenter)
+        {
+            presenter.Maximize();
+        }
     }
 
     private async void OnAppWindowClosing(AppWindow sender, AppWindowClosingEventArgs args)
@@ -741,10 +872,17 @@ public sealed partial class MainWindow : Window
         }
 
         args.Cancel = true;
+        if (_isClosing)
+        {
+            return;
+        }
+
+        _isClosing = true;
+        RootGrid.IsHitTestVisible = false;
 
         try
         {
-            await ViewModel.PersistSessionAsync();
+            await ViewModel.BeginClosingAsync();
 
             var windowState = AppWindow.Presenter is OverlappedPresenter
             {
@@ -759,11 +897,15 @@ public sealed partial class MainWindow : Window
                 windowState,
                 _lastNormalPosition.X,
                 _lastNormalPosition.Y);
+            await ViewModel.PersistSessionAsync();
             _allowClose = true;
             Close();
         }
         catch (Exception ex)
         {
+            _isClosing = false;
+            RootGrid.IsHitTestVisible = true;
+            await ViewModel.CancelClosingAsync();
             await _dialogs.ShowMessageAsync("無法關閉程式", ex.Message);
         }
     }

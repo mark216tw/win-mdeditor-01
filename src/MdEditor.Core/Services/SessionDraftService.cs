@@ -66,6 +66,8 @@ public sealed class SessionDraftService : ISessionDraftService
                 return null;
             }
 
+            DeleteOrphanDraftFiles(manifest.Documents ?? []);
+
             var documents = new List<DraftDocumentSnapshot>();
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -218,12 +220,14 @@ public sealed class SessionDraftService : ISessionDraftService
             var activeIds = new HashSet<string>(
                 entries.Select(entry => entry.DocumentId),
                 StringComparer.OrdinalIgnoreCase);
+            var removedAny = false;
 
             foreach (var documentId in _persistedRevisions.Keys.ToList())
             {
                 if (!activeIds.Contains(documentId))
                 {
                     _persistedRevisions.Remove(documentId);
+                    removedAny = true;
                 }
             }
 
@@ -238,7 +242,10 @@ public sealed class SessionDraftService : ISessionDraftService
                 },
                 cancellationToken).ConfigureAwait(false);
 
-            DeleteOrphanDraftFiles(entries);
+            if (removedAny)
+            {
+                DeleteOrphanDraftFiles(entries);
+            }
         }
         finally
         {
