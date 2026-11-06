@@ -4,6 +4,23 @@
 
 ---
 
+## 2026-11-06 - v1.1.1
+
+### 目標
+將工具列全部功能改為風格一致的自繪圖示，減少中英文文字按鈕造成的寬度差異並提升辨識一致性。
+
+### 變更
+- `src/MdEditor/Styles/ToolbarIcons.xaml`：新增 19 個 20×20 單色向量線稿，統一線寬、圓角、尺寸與主題前景色。
+- `src/MdEditor/App.xaml`：載入工具列圖示資源字典。
+- `src/MdEditor/MainWindow.xaml`：所有工具列文字與系統圖示改用自繪向量圖示，按鈕統一為 32×32；保留原有分組、快捷鍵、提示與無障礙名稱。
+- `Directory.Build.props`、`README.md`、`CHANGELOG.md`、`RELEASE_NOTES.md`、`docs/使用指南.md`、`docs/技術文件.md`：版號更新為 1.1.1 並同步文件。
+
+### 問題與解法
+- WinUI XAML 編譯器無法將簡寫路徑直接指定給資源中的 `PathGeometry.Figures` → 改以繼承共用線條設定的 `Path` 樣式，在 `Data` setter 內轉換路徑資料。
+
+### 待辦／已知限制
+- 尚未在 Windows 10 1809 與 ARM64 實機確認圖示顯示。
+
 ## 2026-11-05 - v1.1.0
 
 ### 目標

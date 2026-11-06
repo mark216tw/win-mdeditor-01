@@ -18,8 +18,10 @@
         KeyboardAcceleratorPlacementMode="Hidden">
         <Grid.Resources>
             <Style x:Key="ToolbarButtonStyle" TargetType="Button">
+                <Setter Property="Width" Value="32" />
+                <Setter Property="Height" Value="32" />
                 <Setter Property="MinWidth" Value="0" />
-                <Setter Property="Padding" Value="10,5" />
+                <Setter Property="Padding" Value="6" />
                 <Setter Property="CornerRadius" Value="6" />
                 <Setter Property="Background" Value="Transparent" />
                 <Setter Property="BorderThickness" Value="0" />
@@ -229,42 +231,42 @@
                         AutomationProperties.Name="粗體"
                         Command="{x:Bind ViewModel.FormatCommand}"
                         CommandParameter="bold"
-                        Content="B"
-                        FontWeight="Bold"
                         KeyboardAcceleratorPlacementMode="Hidden"
                         Style="{StaticResource ToolbarButtonStyle}"
                         ToolTipService.ToolTip="粗體 (Ctrl+B)">
                         <Button.KeyboardAccelerators>
                             <KeyboardAccelerator Key="B" Modifiers="Control" />
                         </Button.KeyboardAccelerators>
+                        <Path Style="{StaticResource ToolbarBoldIcon}" />
                     </Button>
                     <Button
                         AutomationProperties.Name="斜體"
                         Command="{x:Bind ViewModel.FormatCommand}"
                         CommandParameter="italic"
-                        Content="I"
-                        FontStyle="Italic"
                         KeyboardAcceleratorPlacementMode="Hidden"
                         Style="{StaticResource ToolbarButtonStyle}"
                         ToolTipService.ToolTip="斜體 (Ctrl+I)">
                         <Button.KeyboardAccelerators>
                             <KeyboardAccelerator Key="I" Modifiers="Control" />
                         </Button.KeyboardAccelerators>
+                        <Path Style="{StaticResource ToolbarItalicIcon}" />
                     </Button>
                     <Button
                         AutomationProperties.Name="刪除線"
                         Command="{x:Bind ViewModel.FormatCommand}"
                         CommandParameter="strike"
-                        Content="S"
                         Style="{StaticResource ToolbarButtonStyle}"
-                        ToolTipService.ToolTip="刪除線" />
+                        ToolTipService.ToolTip="刪除線">
+                        <Path Style="{StaticResource ToolbarStrikeIcon}" />
+                    </Button>
                     <Button
                         AutomationProperties.Name="行內程式碼"
                         Command="{x:Bind ViewModel.FormatCommand}"
                         CommandParameter="inlinecode"
-                        Content="&lt;/&gt;"
                         Style="{StaticResource ToolbarButtonStyle}"
-                        ToolTipService.ToolTip="行內程式碼" />
+                        ToolTipService.ToolTip="行內程式碼">
+                        <Path Style="{StaticResource ToolbarInlineCodeIcon}" />
+                    </Button>
 
                     <Border
                         Width="1"
@@ -275,23 +277,26 @@
                         AutomationProperties.Name="標題 1"
                         Command="{x:Bind ViewModel.FormatCommand}"
                         CommandParameter="h1"
-                        Content="H1"
                         Style="{StaticResource ToolbarButtonStyle}"
-                        ToolTipService.ToolTip="標題 1" />
+                        ToolTipService.ToolTip="標題 1">
+                        <Path Style="{StaticResource ToolbarHeading1Icon}" />
+                    </Button>
                     <Button
                         AutomationProperties.Name="標題 2"
                         Command="{x:Bind ViewModel.FormatCommand}"
                         CommandParameter="h2"
-                        Content="H2"
                         Style="{StaticResource ToolbarButtonStyle}"
-                        ToolTipService.ToolTip="標題 2" />
+                        ToolTipService.ToolTip="標題 2">
+                        <Path Style="{StaticResource ToolbarHeading2Icon}" />
+                    </Button>
                     <Button
                         AutomationProperties.Name="標題 3"
                         Command="{x:Bind ViewModel.FormatCommand}"
                         CommandParameter="h3"
-                        Content="H3"
                         Style="{StaticResource ToolbarButtonStyle}"
-                        ToolTipService.ToolTip="標題 3" />
+                        ToolTipService.ToolTip="標題 3">
+                        <Path Style="{StaticResource ToolbarHeading3Icon}" />
+                    </Button>
 
                     <Border
                         Width="1"
@@ -302,37 +307,42 @@
                         AutomationProperties.Name="項目清單"
                         Command="{x:Bind ViewModel.FormatCommand}"
                         CommandParameter="ul"
-                        Content="清單"
                         Style="{StaticResource ToolbarButtonStyle}"
-                        ToolTipService.ToolTip="項目清單" />
+                        ToolTipService.ToolTip="項目清單">
+                        <Path Style="{StaticResource ToolbarBulletListIcon}" />
+                    </Button>
                     <Button
                         AutomationProperties.Name="編號清單"
                         Command="{x:Bind ViewModel.FormatCommand}"
                         CommandParameter="ol"
-                        Content="1."
                         Style="{StaticResource ToolbarButtonStyle}"
-                        ToolTipService.ToolTip="編號清單" />
+                        ToolTipService.ToolTip="編號清單">
+                        <Path Style="{StaticResource ToolbarNumberListIcon}" />
+                    </Button>
                     <Button
                         AutomationProperties.Name="工作清單"
                         Command="{x:Bind ViewModel.FormatCommand}"
                         CommandParameter="task"
-                        Content="[ ]"
                         Style="{StaticResource ToolbarButtonStyle}"
-                        ToolTipService.ToolTip="工作清單" />
+                        ToolTipService.ToolTip="工作清單">
+                        <Path Style="{StaticResource ToolbarTaskListIcon}" />
+                    </Button>
                     <Button
                         AutomationProperties.Name="引用區塊"
                         Command="{x:Bind ViewModel.FormatCommand}"
                         CommandParameter="quote"
-                        Content="引用"
                         Style="{StaticResource ToolbarButtonStyle}"
-                        ToolTipService.ToolTip="引用區塊" />
+                        ToolTipService.ToolTip="引用區塊">
+                        <Path Style="{StaticResource ToolbarQuoteIcon}" />
+                    </Button>
                     <Button
                         AutomationProperties.Name="程式碼區塊"
                         Command="{x:Bind ViewModel.FormatCommand}"
                         CommandParameter="code"
-                        Content="程式碼"
                         Style="{StaticResource ToolbarButtonStyle}"
-                        ToolTipService.ToolTip="程式碼區塊" />
+                        ToolTipService.ToolTip="程式碼區塊">
+                        <Path Style="{StaticResource ToolbarCodeBlockIcon}" />
+                    </Button>
 
                     <Border
                         Width="1"
@@ -343,35 +353,38 @@
                         AutomationProperties.Name="插入連結"
                         Command="{x:Bind ViewModel.FormatCommand}"
                         CommandParameter="link"
-                        Content="連結"
                         KeyboardAcceleratorPlacementMode="Hidden"
                         Style="{StaticResource ToolbarButtonStyle}"
                         ToolTipService.ToolTip="插入連結 (Ctrl+K)">
                         <Button.KeyboardAccelerators>
                             <KeyboardAccelerator Key="K" Modifiers="Control" />
                         </Button.KeyboardAccelerators>
+                        <Path Style="{StaticResource ToolbarLinkIcon}" />
                     </Button>
                     <Button
                         AutomationProperties.Name="插入圖片"
                         Command="{x:Bind ViewModel.FormatCommand}"
                         CommandParameter="image"
-                        Content="圖片"
                         Style="{StaticResource ToolbarButtonStyle}"
-                        ToolTipService.ToolTip="插入圖片" />
+                        ToolTipService.ToolTip="插入圖片">
+                        <Path Style="{StaticResource ToolbarImageIcon}" />
+                    </Button>
                     <Button
                         AutomationProperties.Name="插入表格"
                         Command="{x:Bind ViewModel.FormatCommand}"
                         CommandParameter="table"
-                        Content="表格"
                         Style="{StaticResource ToolbarButtonStyle}"
-                        ToolTipService.ToolTip="插入表格" />
+                        ToolTipService.ToolTip="插入表格">
+                        <Path Style="{StaticResource ToolbarTableIcon}" />
+                    </Button>
                     <Button
                         AutomationProperties.Name="水平線"
                         Command="{x:Bind ViewModel.FormatCommand}"
                         CommandParameter="hr"
-                        Content="---"
                         Style="{StaticResource ToolbarButtonStyle}"
-                        ToolTipService.ToolTip="水平線" />
+                        ToolTipService.ToolTip="水平線">
+                        <Path Style="{StaticResource ToolbarHorizontalRuleIcon}" />
+                    </Button>
 
                     <Border
                         Width="1"
@@ -384,7 +397,7 @@
                         CommandParameter="undo"
                         Style="{StaticResource ToolbarButtonStyle}"
                         ToolTipService.ToolTip="復原 (Ctrl+Z)">
-                        <SymbolIcon Symbol="Undo" />
+                        <Path Style="{StaticResource ToolbarUndoIcon}" />
                     </Button>
                     <Button
                         AutomationProperties.Name="重做"
@@ -392,7 +405,7 @@
                         CommandParameter="redo"
                         Style="{StaticResource ToolbarButtonStyle}"
                         ToolTipService.ToolTip="重做 (Ctrl+Y)">
-                        <SymbolIcon Symbol="Redo" />
+                        <Path Style="{StaticResource ToolbarRedoIcon}" />
                     </Button>
 
                     <Border
@@ -405,7 +418,7 @@
                         Command="{x:Bind ViewModel.CycleViewModeCommand}"
                         Style="{StaticResource ToolbarButtonStyle}"
                         ToolTipService.ToolTip="{x:Bind ViewModel.ViewModeToolTip, Mode=OneWay}">
-                        <SymbolIcon Symbol="View" />
+                        <Path Style="{StaticResource ToolbarViewIcon}" />
                     </Button>
                 </StackPanel>
             </ScrollViewer>
@@ -571,8 +584,7 @@
                 <Button
                     AutomationProperties.Name="ReloadButton"
                     Command="{x:Bind ViewModel.ReloadCommand}"
-                    Content="重新載入"
-                    Style="{StaticResource ToolbarButtonStyle}" />
+                    Content="重新載入" />
             </InfoBar.ActionButton>
         </InfoBar>
 

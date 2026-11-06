@@ -1,6 +1,11 @@
-# Markdown 編輯器 v1.1.0
+# Markdown 編輯器 v1.1.1
 
 Windows 10／11 的輕量原生 Markdown 桌面編輯器（支援 x64 與 ARM64），結合 WinUI 3 外殼、CodeMirror 6 編輯器與離線即時預覽。
+
+## v1.1.1 重點
+
+- **全新工具列圖示**：19 個工具列功能全面改為統一的自繪向量線稿，尺寸、線寬與圓角一致，並跟隨 App 明暗與自訂主題。
+- **操作維持一致**：所有快捷鍵、工具提示、功能分組與無障礙名稱均完整保留。
 
 ## v1.1.0 重點
 
@@ -22,8 +27,8 @@ Windows 10／11 的輕量原生 Markdown 桌面編輯器（支援 x64 與 ARM64�
 
 | 檔案 | 架構 |
 | --- | --- |
-| `MdEditor-1.1.0-win-x64.zip` | x64（一般 Intel／AMD 電腦） |
-| `MdEditor-1.1.0-win-arm64.zip` | ARM64（Windows on Arm 裝置） |
+| `MdEditor-1.1.1-win-x64.zip` | x64（一般 Intel／AMD 電腦） |
+| `MdEditor-1.1.1-win-arm64.zip` | ARM64（Windows on Arm 裝置） |
 
 本發行版為**非 Self-Contained**（framework-dependent）套件，執行前請先安裝與 App 相同架構的執行環境：
 
