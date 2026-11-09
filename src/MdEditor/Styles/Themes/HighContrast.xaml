@@ -32,4 +32,6 @@
     <SolidColorBrush x:Key="AccentFillColorDisabledBrush" Color="#808000" />
     <SolidColorBrush x:Key="FocusStrokeColorOuterBrush" Color="#FFFF00" />
     <SolidColorBrush x:Key="FocusStrokeColorInnerBrush" Color="#000000" />
+    <SolidColorBrush x:Key="DiffRemovedBackgroundBrush" Color="#40FF0000" />
+    <SolidColorBrush x:Key="DiffAddedBackgroundBrush" Color="#4000FF00" />
 </ResourceDictionary>

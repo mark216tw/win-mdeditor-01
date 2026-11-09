@@ -13,6 +13,13 @@ public enum SaveDecision
     Cancel,
 }
 
+public enum SaveConflictDecision
+{
+    Overwrite,
+    SaveAs,
+    Cancel,
+}
+
 public interface IDialogService
 {
     bool IsDialogOpen { get; }
@@ -28,6 +35,8 @@ public interface IDialogService
     Task<bool> ConfirmAsync(string title, string message, string primaryText, string closeText);
 
     Task<SaveDecision> ConfirmSaveAsync(string title, string message);
+
+    Task<SaveConflictDecision> ConfirmSaveConflictAsync(string title, string message);
 
     Task ShowMessageAsync(string title, string message);
 }
@@ -134,6 +143,28 @@ public sealed class DialogService : IDialogService, IDisposable
             ContentDialogResult.Primary => SaveDecision.Save,
             ContentDialogResult.Secondary => SaveDecision.Discard,
             _ => SaveDecision.Cancel,
+        };
+    }
+
+    public async Task<SaveConflictDecision> ConfirmSaveConflictAsync(string title, string message)
+    {
+        var dialog = new ContentDialog
+        {
+            XamlRoot = RequireXamlRoot(),
+            RequestedTheme = ResolveRequestedTheme(),
+            Title = title,
+            Content = message,
+            PrimaryButtonText = "覆蓋儲存",
+            SecondaryButtonText = "另存新檔",
+            CloseButtonText = "取消",
+            DefaultButton = ContentDialogButton.Primary,
+        };
+
+        return await ShowDialogAsync(dialog) switch
+        {
+            ContentDialogResult.Primary => SaveConflictDecision.Overwrite,
+            ContentDialogResult.Secondary => SaveConflictDecision.SaveAs,
+            _ => SaveConflictDecision.Cancel,
         };
     }
 

@@ -4,11 +4,13 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
 using VibeCode.MdEditor.Core.Helpers;
 using VibeCode.MdEditor.Core.Models;
 using VibeCode.MdEditor.Core.Services;
 using VibeCode.MdEditor.Models;
 using VibeCode.MdEditor.Services;
+using VibeCode.MdEditor.Views;
 using Windows.System;
 using Windows.UI.ViewManagement;
 
@@ -26,6 +28,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private readonly IFileWatcherService _fileWatcher;
     private readonly IDocxExportService _docxExport;
     private readonly IHtmlExportService _htmlExport;
+    private readonly ILineDiffService _lineDiff;
     private readonly IDialogService _dialogs;
     private readonly IUiDispatcher _dispatcher;
     private readonly ILogger<MainViewModel> _logger;
@@ -69,6 +72,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         IFileWatcherService fileWatcher,
         IDocxExportService docxExport,
         IHtmlExportService htmlExport,
+        ILineDiffService lineDiff,
         IDialogService dialogs,
         IUiDispatcher dispatcher,
         ILogger<MainViewModel> logger)
@@ -81,6 +85,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         _fileWatcher = fileWatcher;
         _docxExport = docxExport;
         _htmlExport = htmlExport;
+        _lineDiff = lineDiff;
         _dialogs = dialogs;
         _dispatcher = dispatcher;
         _logger = logger;
@@ -476,6 +481,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             ActiveDocument = document;
             await LoadActiveDocumentAsync();
             await SaveSessionDraftsAsync();
+            await ResolvePendingConflictAsync(document);
         }
         finally
         {
@@ -776,6 +782,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                 LineEnding = snapshot.LineEnding,
                 IsDirty = snapshot.IsDirty || snapshot.Text.Length > 0,
             };
+            document.SetSavedText(snapshot.SavedText);
 
             Documents.Add(document);
             await SelectDocumentAsync(document);
@@ -798,6 +805,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             document.Title,
             document.FilePath,
             keepText ? document.Text : string.Empty,
+            keepText ? document.SavedText : string.Empty,
             document.EncodingName,
             document.CodePage,
             document.HasBom,
@@ -1167,7 +1175,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         }
     }
 
-    private async Task<bool> SaveDocumentAsync(bool saveAs)
+    private async Task<bool> SaveDocumentAsync(bool saveAs, bool skipExternalCheck = false)
     {
         var document = ActiveDocument;
         if (document is null)
@@ -1233,6 +1241,22 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             }
         }
 
+        if (!saveAs &&
+            !skipExternalCheck &&
+            document.FilePath is not null &&
+            !string.IsNullOrEmpty(document.LastKnownHash) &&
+            PathsEqual(document.FilePath, fullPath))
+        {
+            var saveConflict = await CheckSaveConflictAsync(document, fullPath);
+            switch (saveConflict)
+            {
+                case SaveConflictDecision.SaveAs:
+                    return await SaveDocumentAsync(saveAs: true, skipExternalCheck: true);
+                case SaveConflictDecision.Cancel:
+                    return false;
+            }
+        }
+
         SetBusy(true, "正在儲存...");
 
         try
@@ -1280,10 +1304,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             document.LastKnownHash = stamp.Hash;
             document.LastWriteTimeUtc = stamp.LastWriteTimeUtc;
             document.LastKnownLength = stamp.Length;
-            document.IsDirty = false;
+            document.MarkSaved();
             document.IsExternalChange = false;
             document.ExternalChangeMessage = string.Empty;
             document.IsMissing = false;
+            document.PendingConflict = null;
+            document.ConflictPromptDeferred = false;
 
             if (!string.IsNullOrEmpty(oldPath) && !PathsEqual(oldPath, fullPath))
             {
@@ -1315,6 +1341,36 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         finally
         {
             SetBusy(false, string.Empty);
+        }
+    }
+
+    private async Task<SaveConflictDecision> CheckSaveConflictAsync(DocumentViewModel document, string fullPath)
+    {
+        try
+        {
+            if (!File.Exists(fullPath))
+            {
+                return await _dialogs.ConfirmSaveConflictAsync(
+                    "檔案已不存在",
+                    $"「{document.Title}」對應的檔案已不存在。\n" +
+                    "覆蓋儲存會重新建立檔案；另存新檔可選擇其他位置。");
+            }
+
+            var stamp = await _fileService.ComputeStampAsync(fullPath);
+            if (string.Equals(stamp.Hash, document.LastKnownHash, StringComparison.OrdinalIgnoreCase))
+            {
+                return SaveConflictDecision.Overwrite;
+            }
+
+            return await _dialogs.ConfirmSaveConflictAsync(
+                "檔案已在外部變更",
+                $"「{document.Title}」的磁碟版本已在外部變更（{stamp.LastWriteTimeUtc.ToLocalTime():yyyy-MM-dd HH:mm:ss}）。\n" +
+                "覆蓋儲存會取代磁碟上的版本；另存新檔可保留該版本。");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "儲存前檢查外部變更失敗：{Path}", fullPath);
+            return SaveConflictDecision.Overwrite;
         }
     }
 
@@ -1384,10 +1440,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             {
                 document.Text = text;
                 document.Revision++;
-                if (!document.IsDirty)
-                {
-                    document.IsDirty = true;
-                }
+                document.RefreshDirtyState();
             }
         }
         catch (TimeoutException)
@@ -1649,10 +1702,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
         document.Text = e.Text;
         document.Revision++;
-        if (!document.IsDirty)
-        {
-            document.IsDirty = true;
-        }
+        document.RefreshDirtyState();
 
         SchedulePreviewRender();
         ScheduleDraftSave();
@@ -2206,6 +2256,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         WatchRestoredDocument(active);
         ActiveDocument = active;
         await LoadActiveDocumentAsync();
+        await ResolvePendingConflictAsync(active);
 
         _sessionRestoreTask = RestoreRemainingDocumentsAsync(
             session.Documents,
@@ -2360,11 +2411,13 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
         if (fullPath is null)
         {
+            document.SetSavedText(string.Empty);
             return document;
         }
 
         if (!File.Exists(fullPath))
         {
+            document.SetSavedText(snapshot.Text);
             document.IsDirty = true;
             document.IsMissing = true;
             document.IsExternalChange = true;
@@ -2383,6 +2436,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             }
             catch (Exception ex)
             {
+                document.SetSavedText(snapshot.Text);
                 _logger.LogWarning(ex, "還原檔案失敗，改用暫存內容：{Path}", fullPath);
             }
         }
@@ -2390,9 +2444,16 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         {
             try
             {
-                var stamp = await _fileService.ComputeStampAsync(fullPath);
-                if (!string.Equals(stamp.Hash, snapshot.LastKnownHash, StringComparison.OrdinalIgnoreCase))
+                var loaded = await _fileService.LoadAsync(fullPath);
+                document.SetSavedText(loaded.Text);
+                if (!string.Equals(loaded.Hash, snapshot.LastKnownHash, StringComparison.OrdinalIgnoreCase))
                 {
+                    document.PendingConflict = new DocumentConflict(
+                        snapshot.Text,
+                        loaded.Text,
+                        loaded.Hash,
+                        loaded.LastWriteTimeUtc,
+                        loaded.Length);
                     document.IsExternalChange = true;
                     document.ExternalChangeMessage =
                         "檔案在程式關閉期間已變更。重新載入會覆蓋暫存內容。";
@@ -2400,12 +2461,118 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             }
             catch (Exception ex)
             {
+                document.SetSavedText(snapshot.Text);
                 _logger.LogWarning(ex, "檢查還原檔案變更失敗：{Path}", fullPath);
             }
         }
 
         document.IsDirty = true;
         return document;
+    }
+
+    private async Task ResolvePendingConflictAsync(DocumentViewModel document)
+    {
+        if (document.PendingConflict is null ||
+            document.ConflictPromptDeferred ||
+            _disposed ||
+            _isClosing)
+        {
+            return;
+        }
+
+        while (document.PendingConflict is not null)
+        {
+            var dialog = new ConflictResolutionDialog(document.Title, document.PendingConflict);
+            if (await ShowDialogSafeAsync(dialog) is null)
+            {
+                document.ConflictPromptDeferred = true;
+                return;
+            }
+
+            switch (dialog.Choice)
+            {
+                case ConflictResolution.KeepDraft:
+                    document.PendingConflict = null;
+                    document.ConflictPromptDeferred = false;
+                    return;
+
+                case ConflictResolution.LoadDisk:
+                    await ApplyDiskVersionAsync(document);
+                    return;
+
+                case ConflictResolution.Compare:
+                    var compare = new ConflictCompareDialog(
+                        document.Title,
+                        document.Text,
+                        document.PendingConflict.DiskText,
+                        _lineDiff);
+                    var result = await ShowDialogSafeAsync(compare);
+                    if (result is null)
+                    {
+                        document.ConflictPromptDeferred = true;
+                        return;
+                    }
+
+                    if (result == ContentDialogResult.Primary)
+                    {
+                        document.PendingConflict = null;
+                        document.ConflictPromptDeferred = false;
+                        return;
+                    }
+
+                    if (result == ContentDialogResult.Secondary)
+                    {
+                        await ApplyDiskVersionAsync(document);
+                        return;
+                    }
+
+                    break;
+
+                default:
+                    document.ConflictPromptDeferred = true;
+                    return;
+            }
+        }
+    }
+
+    private async Task<ContentDialogResult?> ShowDialogSafeAsync(ContentDialog dialog)
+    {
+        try
+        {
+            return await _dialogs.ShowDialogAsync(dialog);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "顯示衝突對話框失敗。");
+            return null;
+        }
+    }
+
+    private async Task<bool> ApplyDiskVersionAsync(DocumentViewModel document)
+    {
+        if (string.IsNullOrWhiteSpace(document.FilePath))
+        {
+            return false;
+        }
+
+        try
+        {
+            var loaded = await _fileService.LoadAsync(document.FilePath);
+            document.ApplyDiskVersion(loaded);
+
+            if (ReferenceEquals(document, ActiveDocument))
+            {
+                await LoadActiveDocumentAsync();
+            }
+
+            await SaveSessionDraftsAsync();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            ShowError("無法載入磁碟版本", ex.Message);
+            return false;
+        }
     }
 
     private void ScheduleDraftSave()
@@ -2531,6 +2698,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         string Title,
         string? FilePath,
         string Text,
+        string SavedText,
         string EncodingName,
         int CodePage,
         bool HasBom,

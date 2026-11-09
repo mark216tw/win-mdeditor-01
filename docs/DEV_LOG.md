@@ -4,6 +4,31 @@
 
 ---
 
+## 2026-11-09 - v1.1.2
+
+### 目標
+雙擊分頁列空白處可新增文件；Undo 回到儲存前內容時，分頁的未儲存標記應消失；啟動與儲存時妥善處理外部變更衝突。
+
+### 變更
+- `src/MdEditor/MainWindow.xaml.cs`：分頁 `ListView` 改以 `DoubleTappedEvent` + `AddHandler`（含已處理事件）攔截雙擊，確認來源不在分頁項目或捲軸時執行 `NewDocumentCommand`。
+- `src/MdEditor/Models/DocumentViewModel.cs`：新增 `SavedText` 基準與 `MarkSaved()`／`SetSavedText()`／`RefreshDirtyState()`，以內容字串比較維護 `IsDirty`；新增 `PendingConflict` 與 `ApplyDiskVersion()`。
+- `src/MdEditor/ViewModels/MainViewModel.cs`：載入、儲存、編輯器內容變更與草稿還原改用新的基準機制；還原時建立 `DocumentConflict`，作用中分頁優先顯示解析對話框，其餘分頁切換時提示；儲存前重新比對磁碟雜湊並提供覆蓋／另存／取消。
+- `src/MdEditor/Views/ConflictResolutionDialog.xaml`、`ConflictCompareDialog.xaml`：新增衝突解析與並排比較對話框。
+- `src/MdEditor.Core/Services/LineDiffService.cs`：新增行級 LCS 差異比對，過大輸入自動降級。
+- `src/MdEditor/Services/DialogService.cs`：新增 `SaveConflictDecision` 與 `ConfirmSaveConflictAsync()`。
+- `src/MdEditor/App.xaml`：註冊 `ILineDiffService`，並為淺色／深色／系統主題加入差異標示底色資源。
+
+### 問題與解法
+- 分頁 `ListView` 會處理指標事件，一般事件處理常式收不到空白處點擊 → 使用 `AddHandler(..., handledEventsToo: true)` 並沿視覺樹排除 `ListViewItem` 與 `ScrollBar`；需求改為雙擊後改用 `DoubleTappedEvent`。
+- 檔案雜湊包含編碼、BOM 與行尾，不能直接與記憶體中的文字比較 → 改以正規化後的 `SavedText` 字串作為基準。
+- ContentDialog 僅有三種標準按鈕，無法同時表達保留／載入／比較 → 使用自訂按鈕並在 `Choice` 屬性回傳結果。
+- 淺色／深色／系統主題沒有自訂資源字典，差異底色會找不到 → 在 `App.xaml` 的 `ThemeDictionaries` 補上預設資源。
+
+### 待辦／已知限制
+- 比較畫面為唯讀，不提供逐行合併；超過行數門檻的大檔會降級為無差異標示的並排檢視。
+- 儲存前檢查與實際寫檔之間仍有極小時間差，無法完全避免其他程式瞬間修改。
+- 尚未在 Windows 10 1809 與 ARM64 實機驗證衝突對話框、雙擊與 Undo 行為。
+
 ## 2026-11-06 - v1.1.1
 
 ### 目標

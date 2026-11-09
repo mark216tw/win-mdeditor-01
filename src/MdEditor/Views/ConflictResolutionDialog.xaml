@@ -1,0 +1,50 @@
+<ContentDialog
+    x:Class="VibeCode.MdEditor.Views.ConflictResolutionDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    Title="檔案衝突"
+    mc:Ignorable="d">
+    <StackPanel MinWidth="440" Spacing="16">
+        <TextBlock
+            x:Name="SummaryText"
+            Style="{ThemeResource SubtitleTextBlockStyle}"
+            TextWrapping="Wrap" />
+
+        <TextBlock
+            x:Name="DetailText"
+            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+            TextWrapping="Wrap" />
+
+        <TextBlock
+            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+            Text="選擇「保留草稿」會保留目前編輯內容；「載入磁碟版本」會以磁碟上的內容覆蓋草稿。"
+            TextWrapping="Wrap" />
+
+        <StackPanel
+            HorizontalAlignment="Right"
+            Orientation="Horizontal"
+            Spacing="8">
+            <Button
+                x:Name="KeepDraftButton"
+                AutomationProperties.Name="保留草稿"
+                Click="KeepDraft_Click"
+                Content="保留草稿"
+                Style="{StaticResource AccentButtonStyle}"
+                ToolTipService.ToolTip="保留目前的未儲存草稿" />
+            <Button
+                x:Name="LoadDiskButton"
+                AutomationProperties.Name="載入磁碟版本"
+                Click="LoadDisk_Click"
+                Content="載入磁碟版本"
+                ToolTipService.ToolTip="以磁碟上的版本取代草稿" />
+            <Button
+                x:Name="CompareButton"
+                AutomationProperties.Name="並排比較"
+                Click="Compare_Click"
+                Content="並排比較"
+                ToolTipService.ToolTip="並排檢視草稿與磁碟版本" />
+        </StackPanel>
+    </StackPanel>
+</ContentDialog>

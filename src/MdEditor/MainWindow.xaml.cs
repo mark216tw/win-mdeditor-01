@@ -4,7 +4,9 @@ using Microsoft.Extensions.Logging;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using VibeCode.MdEditor.Models;
 using VibeCode.MdEditor.Services;
 using VibeCode.MdEditor.ViewModels;
@@ -79,6 +81,10 @@ public sealed partial class MainWindow : Window
         };
 
         AddPreferencesAccelerator();
+        DocumentTabs.AddHandler(
+            UIElement.DoubleTappedEvent,
+            new DoubleTappedEventHandler(DocumentTabs_DoubleTapped),
+            handledEventsToo: true);
         ApplyWindowIcon();
     }
 
@@ -366,6 +372,34 @@ public sealed partial class MainWindow : Window
         {
             UpdateActiveTabVisuals(document);
             await ViewModel.SelectDocumentAsync(document);
+        }
+    }
+
+    private async void DocumentTabs_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
+    {
+        if (e.OriginalSource is not DependencyObject source)
+        {
+            return;
+        }
+
+        for (var current = source; current is not null; current = VisualTreeHelper.GetParent(current))
+        {
+            if (current is ListViewItem or ScrollBar)
+            {
+                return;
+            }
+
+            if (ReferenceEquals(current, DocumentTabs))
+            {
+                break;
+            }
+        }
+
+        e.Handled = true;
+
+        if (ViewModel.NewDocumentCommand.CanExecute(null))
+        {
+            await ViewModel.NewDocumentCommand.ExecuteAsync(null);
         }
     }
 

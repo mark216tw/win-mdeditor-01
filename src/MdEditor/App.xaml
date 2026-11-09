@@ -7,6 +7,26 @@
             <ResourceDictionary.MergedDictionaries>
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
                 <ResourceDictionary Source="ms-appx:///Styles/ToolbarIcons.xaml" />
+                <ResourceDictionary>
+                    <ResourceDictionary.ThemeDictionaries>
+                        <ResourceDictionary x:Key="Default">
+                            <SolidColorBrush x:Key="DiffRemovedBackgroundBrush" Color="#33D13438" />
+                            <SolidColorBrush x:Key="DiffAddedBackgroundBrush" Color="#33228B22" />
+                        </ResourceDictionary>
+                        <ResourceDictionary x:Key="Light">
+                            <SolidColorBrush x:Key="DiffRemovedBackgroundBrush" Color="#33D13438" />
+                            <SolidColorBrush x:Key="DiffAddedBackgroundBrush" Color="#33228B22" />
+                        </ResourceDictionary>
+                        <ResourceDictionary x:Key="Dark">
+                            <SolidColorBrush x:Key="DiffRemovedBackgroundBrush" Color="#40FF6B6B" />
+                            <SolidColorBrush x:Key="DiffAddedBackgroundBrush" Color="#4078D97A" />
+                        </ResourceDictionary>
+                        <ResourceDictionary x:Key="HighContrast">
+                            <SolidColorBrush x:Key="DiffRemovedBackgroundBrush" Color="#40FF0000" />
+                            <SolidColorBrush x:Key="DiffAddedBackgroundBrush" Color="#4000FF00" />
+                        </ResourceDictionary>
+                    </ResourceDictionary.ThemeDictionaries>
+                </ResourceDictionary>
             </ResourceDictionary.MergedDictionaries>
         </ResourceDictionary>
     </Application.Resources>

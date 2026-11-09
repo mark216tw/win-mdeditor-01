@@ -44,6 +44,7 @@ public partial class App : Application
         builder.Services.AddSingleton<ISessionDraftService>(_ => new SessionDraftService(localDirectory));
         builder.Services.AddSingleton<IDocxExportService, DocxExportService>();
         builder.Services.AddSingleton<IHtmlExportService, HtmlExportService>();
+        builder.Services.AddSingleton<ILineDiffService, LineDiffService>();
         builder.Services.AddSingleton<IDialogService, DialogService>();
         builder.Services.AddSingleton<IFileAssociationService, FileAssociationService>();
         builder.Services.AddSingleton<IUiDispatcher, UiDispatcher>();

@@ -95,6 +95,12 @@ public sealed partial class DocumentViewModel : ObservableObject
 
     public Visibility DirtyVisibility => IsDirty ? Visibility.Visible : Visibility.Collapsed;
 
+    public string SavedText { get; private set; } = string.Empty;
+
+    public DocumentConflict? PendingConflict { get; set; }
+
+    public bool ConflictPromptDeferred { get; set; }
+
     public void Load(LoadedDocument document)
     {
         Text = document.Text;
@@ -108,7 +114,30 @@ public sealed partial class DocumentViewModel : ObservableObject
         IsExternalChange = false;
         ExternalChangeMessage = string.Empty;
         IsMissing = false;
+        MarkSaved();
+    }
+
+    public void ApplyDiskVersion(LoadedDocument document)
+    {
+        Load(document);
+        PendingConflict = null;
+        ConflictPromptDeferred = false;
+    }
+
+    public void SetSavedText(string? text)
+    {
+        SavedText = text ?? string.Empty;
+    }
+
+    public void MarkSaved()
+    {
+        SavedText = Text;
         IsDirty = false;
+    }
+
+    public void RefreshDirtyState()
+    {
+        IsDirty = !string.Equals(Text, SavedText, StringComparison.Ordinal);
     }
 
     partial void OnFilePathChanged(string? value)
