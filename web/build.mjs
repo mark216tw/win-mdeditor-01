@@ -6,27 +6,41 @@ const root = resolve(import.meta.dirname, '..');
 const assets = resolve(root, 'src/MdEditor/Assets');
 
 async function build() {
-  await mkdir(resolve(assets, 'Editor'), { recursive: true });
-  await mkdir(resolve(assets, 'Preview'), { recursive: true });
+  const editorOutDir = resolve(assets, 'Editor');
+  const previewOutDir = resolve(assets, 'Preview');
+  await mkdir(editorOutDir, { recursive: true });
+  await mkdir(previewOutDir, { recursive: true });
+  await rm(resolve(editorOutDir, 'chunks'), { recursive: true, force: true });
+  await rm(resolve(previewOutDir, 'chunks'), { recursive: true, force: true });
 
   await esbuild.build({
-    entryPoints: [resolve(root, 'web/editor/src/editor.js')],
+    entryPoints: {
+      editor: resolve(root, 'web/editor/src/editor.js'),
+    },
     bundle: true,
-    format: 'iife',
+    splitting: true,
+    format: 'esm',
     minify: true,
     sourcemap: false,
     target: ['chrome110'],
-    outfile: resolve(assets, 'Editor/editor.bundle.js'),
+    outdir: editorOutDir,
+    entryNames: '[name].bundle',
+    chunkNames: 'chunks/[name]-[hash]',
   });
 
   await esbuild.build({
-    entryPoints: [resolve(root, 'web/preview/src/preview.js')],
+    entryPoints: {
+      preview: resolve(root, 'web/preview/src/preview.js'),
+    },
     bundle: true,
-    format: 'iife',
+    splitting: true,
+    format: 'esm',
     minify: true,
     sourcemap: false,
     target: ['chrome110'],
-    outfile: resolve(assets, 'Preview/preview.bundle.js'),
+    outdir: previewOutDir,
+    entryNames: '[name].bundle',
+    chunkNames: 'chunks/[name]-[hash]',
   });
 
   await copyFile(

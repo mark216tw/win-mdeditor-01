@@ -11,21 +11,24 @@ public interface IMarkdownRenderer
 
 public sealed partial class MarkdownRenderer : IMarkdownRenderer
 {
-    private readonly MarkdownPipeline _pipeline;
+    private readonly Lazy<MarkdownPipeline> _pipeline;
 
     public MarkdownRenderer()
-        : this(MarkdownPipelineFactory.Create(includeLineNumbers: true))
     {
+        _pipeline = new Lazy<MarkdownPipeline>(
+            () => MarkdownPipelineFactory.Create(includeLineNumbers: true),
+            LazyThreadSafetyMode.ExecutionAndPublication);
     }
 
     public MarkdownRenderer(MarkdownPipeline pipeline)
     {
-        _pipeline = pipeline;
+        ArgumentNullException.ThrowIfNull(pipeline);
+        _pipeline = new Lazy<MarkdownPipeline>(pipeline);
     }
 
     public string Render(string markdown, string? documentDirectory)
     {
-        var html = Markdown.ToHtml(markdown ?? string.Empty, _pipeline);
+        var html = Markdown.ToHtml(markdown ?? string.Empty, _pipeline.Value);
         html = RewriteImages(html, documentDirectory);
         return SanitizeUrls(html);
     }

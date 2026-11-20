@@ -205,15 +205,23 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         preview.FontSizeChanged += OnPreviewFontSizeChanged;
         preview.TaskToggled += OnPreviewTaskToggled;
 
-        var editorInitTask = editor.InitializeAsync();
-        var sessionLoadTask = LoadSessionDraftAsync();
-
         if (!_settings.IsLoaded)
         {
             await _settings.LoadAsync();
         }
 
         ViewMode = ParseViewMode(_settings.Settings.ViewMode);
+
+        await editor.SetIncludeTextInChangeAsync(ViewMode != EditorViewMode.Edit);
+        await editor.SetWordWrapAsync(_settings.Settings.WordWrap);
+        await editor.SetFontFamilyAsync(_settings.Settings.EditorFontFamily);
+        await editor.SetFontSizeAsync(_settings.Settings.EditorFontSize);
+        await preview.SetFontSizeAsync(_settings.Settings.EditorFontSize);
+        await ApplyThemeAsync(_settings.Settings.Theme, save: false);
+
+        var editorInitTask = editor.InitializeAsync();
+        var sessionLoadTask = LoadSessionDraftAsync();
+
         if (ViewMode != EditorViewMode.Edit)
         {
             _ = preview.InitializeAsync();
@@ -223,13 +231,6 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         _ = PruneRecentFilesAsync();
 
         await editorInitTask;
-
-        await editor.SetIncludeTextInChangeAsync(ViewMode != EditorViewMode.Edit);
-        await editor.SetWordWrapAsync(_settings.Settings.WordWrap);
-        await editor.SetFontFamilyAsync(_settings.Settings.EditorFontFamily);
-        await editor.SetFontSizeAsync(_settings.Settings.EditorFontSize);
-        await preview.SetFontSizeAsync(_settings.Settings.EditorFontSize);
-        await ApplyThemeAsync(_settings.Settings.Theme, save: false);
 
         var session = await sessionLoadTask;
         await RestoreSessionAsync(session);

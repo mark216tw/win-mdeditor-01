@@ -32,8 +32,10 @@ public partial class App : Application
             "MdEditor");
         Directory.CreateDirectory(localDirectory);
 
-        var builder = Host.CreateApplicationBuilder();
-        builder.Logging.ClearProviders();
+        var builder = Host.CreateEmptyApplicationBuilder(new HostApplicationBuilderSettings
+        {
+            DisableDefaults = true,
+        });
         builder.Logging.AddProvider(new FileLoggerProvider(Path.Combine(localDirectory, "logs")));
 
         builder.Services.AddSingleton<IFileService, FileService>();
@@ -96,8 +98,8 @@ public partial class App : Application
                 _mainWindow = null;
             };
 
-            _mainWindow.Activate();
             _mainWindow.ApplyInitialWindowLayout();
+            _mainWindow.Activate();
             _mainWindow.PrewarmEditor();
 
             var filePath = LaunchArguments.TryGetFilePath(

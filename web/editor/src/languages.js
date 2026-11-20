@@ -1,19 +1,7 @@
 import { LanguageDescription, LanguageSupport, StreamLanguage } from '@codemirror/language';
-import { javascript } from '@codemirror/lang-javascript';
-import { html } from '@codemirror/lang-html';
-import { css } from '@codemirror/lang-css';
-import { json } from '@codemirror/lang-json';
-import { python } from '@codemirror/lang-python';
-import { java } from '@codemirror/lang-java';
-import { cpp } from '@codemirror/lang-cpp';
-import { sql } from '@codemirror/lang-sql';
-import { xml } from '@codemirror/lang-xml';
-import { yaml } from '@codemirror/lang-yaml';
-import { csharp } from '@codemirror/legacy-modes/mode/clike';
-import { shell } from '@codemirror/legacy-modes/mode/shell';
 
-function legacy(parser) {
-  return new LanguageSupport(StreamLanguage.define(parser));
+function legacy(loader) {
+  return async () => new LanguageSupport(StreamLanguage.define(await loader()));
 }
 
 export const languages = [
@@ -21,86 +9,86 @@ export const languages = [
     name: 'JavaScript',
     alias: ['ecmascript', 'js', 'node'],
     extensions: ['js', 'mjs', 'cjs'],
-    support: javascript(),
+    load: () => import('@codemirror/lang-javascript').then((m) => m.javascript()),
   }),
   LanguageDescription.of({
     name: 'TypeScript',
     alias: ['ts'],
     extensions: ['ts', 'mts', 'cts'],
-    support: javascript({ typescript: true }),
+    load: () => import('@codemirror/lang-javascript').then((m) => m.javascript({ typescript: true })),
   }),
   LanguageDescription.of({
     name: 'JSX',
     extensions: ['jsx'],
-    support: javascript({ jsx: true }),
+    load: () => import('@codemirror/lang-javascript').then((m) => m.javascript({ jsx: true })),
   }),
   LanguageDescription.of({
     name: 'TSX',
     extensions: ['tsx'],
-    support: javascript({ jsx: true, typescript: true }),
+    load: () => import('@codemirror/lang-javascript').then((m) => m.javascript({ jsx: true, typescript: true })),
   }),
   LanguageDescription.of({
     name: 'HTML',
     alias: ['xhtml'],
     extensions: ['html', 'htm', 'handlebars', 'hbs'],
-    support: html(),
+    load: () => import('@codemirror/lang-html').then((m) => m.html()),
   }),
   LanguageDescription.of({
     name: 'CSS',
     extensions: ['css'],
-    support: css(),
+    load: () => import('@codemirror/lang-css').then((m) => m.css()),
   }),
   LanguageDescription.of({
     name: 'JSON',
     alias: ['json5'],
     extensions: ['json', 'map'],
-    support: json(),
+    load: () => import('@codemirror/lang-json').then((m) => m.json()),
   }),
   LanguageDescription.of({
     name: 'Python',
     extensions: ['BUILD', 'bzl', 'py', 'pyw'],
     filename: /^(BUCK|BUILD)$/,
-    support: python(),
+    load: () => import('@codemirror/lang-python').then((m) => m.python()),
   }),
   LanguageDescription.of({
     name: 'Java',
     extensions: ['java'],
-    support: java(),
+    load: () => import('@codemirror/lang-java').then((m) => m.java()),
   }),
   LanguageDescription.of({
     name: 'C++',
     alias: ['cpp'],
     extensions: ['cpp', 'c++', 'cc', 'cxx', 'hpp', 'h++', 'hh', 'hxx'],
-    support: cpp(),
+    load: () => import('@codemirror/lang-cpp').then((m) => m.cpp()),
   }),
   LanguageDescription.of({
     name: 'C#',
     alias: ['csharp', 'cs'],
     extensions: ['cs'],
-    support: legacy(csharp),
+    load: legacy(() => import('@codemirror/legacy-modes/mode/clike').then((m) => m.csharp)),
   }),
   LanguageDescription.of({
     name: 'Shell',
     alias: ['bash', 'sh', 'zsh'],
     extensions: ['sh', 'ksh', 'bash'],
     filename: /^PKGBUILD$/,
-    support: legacy(shell),
+    load: legacy(() => import('@codemirror/legacy-modes/mode/shell').then((m) => m.shell)),
   }),
   LanguageDescription.of({
     name: 'SQL',
     extensions: ['sql'],
-    support: sql(),
+    load: () => import('@codemirror/lang-sql').then((m) => m.sql()),
   }),
   LanguageDescription.of({
     name: 'XML',
     alias: ['rss', 'wsdl', 'xsd'],
     extensions: ['xml', 'xsl', 'xsd', 'svg'],
-    support: xml(),
+    load: () => import('@codemirror/lang-xml').then((m) => m.xml()),
   }),
   LanguageDescription.of({
     name: 'YAML',
     alias: ['yml'],
     extensions: ['yaml', 'yml'],
-    support: yaml(),
+    load: () => import('@codemirror/lang-yaml').then((m) => m.yaml()),
   }),
 ];

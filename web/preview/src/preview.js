@@ -1,6 +1,3 @@
-import hljs from 'highlight.js/lib/common';
-import katex from 'katex';
-
 const content = document.getElementById('content');
 const highlightTheme = document.getElementById('hljs-theme');
 const knownThemes = new Set([
@@ -14,6 +11,10 @@ const knownThemes = new Set([
   'highcontrast',
 ]);
 const darkThemes = new Set(['dark', 'nord', 'forest', 'highcontrast']);
+let hljsApi = null;
+let hljsLoadPromise = null;
+let katexApi = null;
+let katexLoadPromise = null;
 let mermaidApi = null;
 let mermaidLoadPromise = null;
 let currentTheme = 'light';
@@ -34,7 +35,7 @@ const highlightObserver = new IntersectionObserver(
 
       const code = entry.target;
       highlightObserver.unobserve(code);
-      applyHighlight(code);
+      void applyHighlight(code);
     }
   },
   { rootMargin: '400px' },
@@ -92,7 +93,46 @@ function ensureMermaid() {
   return mermaidLoadPromise;
 }
 
-hljs.configure({ ignoreUnescapedHTML: true });
+function ensureHljs() {
+  if (hljsApi) {
+    return Promise.resolve(hljsApi);
+  }
+
+  if (!hljsLoadPromise) {
+    hljsLoadPromise = import('highlight.js/lib/common')
+      .then((module) => {
+        hljsApi = module.default ?? module;
+        hljsApi.configure({ ignoreUnescapedHTML: true });
+        return hljsApi;
+      })
+      .catch((error) => {
+        hljsLoadPromise = null;
+        throw error;
+      });
+  }
+
+  return hljsLoadPromise;
+}
+
+function ensureKatex() {
+  if (katexApi) {
+    return Promise.resolve(katexApi);
+  }
+
+  if (!katexLoadPromise) {
+    katexLoadPromise = import('katex')
+      .then((module) => {
+        katexApi = module.default ?? module;
+        return katexApi;
+      })
+      .catch((error) => {
+        katexLoadPromise = null;
+        throw error;
+      });
+  }
+
+  return katexLoadPromise;
+}
 
 function send(message) {
   if (window.chrome?.webview) {
@@ -188,7 +228,8 @@ function stripMathDelimiters(text) {
   return value;
 }
 
-function renderMath(root) {
+async function renderMath(root, generation) {
+  const pending = [];
   for (const element of root.querySelectorAll('.math')) {
     if (element.dataset.mathRendered === 'true') {
       continue;
@@ -199,14 +240,31 @@ function renderMath(root) {
       continue;
     }
 
-    const displayMode = element.tagName === 'DIV';
-    const cacheKey = (displayMode ? 'D' : 'I') + '\u0000' + source;
+    pending.push({ element, source, displayMode: element.tagName === 'DIV' });
+  }
+
+  if (pending.length === 0) {
+    return;
+  }
+
+  let katex = null;
+  for (const item of pending) {
+    if (generation !== renderGeneration || !item.element.isConnected) {
+      return;
+    }
+
+    const cacheKey = (item.displayMode ? 'D' : 'I') + '\u0000' + item.source;
     let html = mathCache.get(cacheKey);
 
     if (!html) {
       try {
-        html = katex.renderToString(source, {
-          displayMode,
+        katex ??= await ensureKatex();
+        if (generation !== renderGeneration || !item.element.isConnected) {
+          return;
+        }
+
+        html = katex.renderToString(item.source, {
+          displayMode: item.displayMode,
           throwOnError: false,
           strict: 'ignore',
           trust: false,
@@ -218,9 +276,9 @@ function renderMath(root) {
       }
     }
 
-    element.innerHTML = html;
-    element.dataset.mathRendered = 'true';
-    element.classList.add('math-rendered');
+    item.element.innerHTML = html;
+    item.element.dataset.mathRendered = 'true';
+    item.element.classList.add('math-rendered');
   }
 }
 
@@ -445,7 +503,7 @@ async function renderMermaidBlocks(blocks, generation) {
   }
 }
 
-function applyHighlight(code) {
+async function applyHighlight(code) {
   if (code.dataset.highlighted || isMermaidCode(code)) {
     return;
   }
@@ -463,6 +521,11 @@ function applyHighlight(code) {
   }
 
   try {
+    const hljs = await ensureHljs();
+    if (!code.isConnected || code.dataset.highlighted) {
+      return;
+    }
+
     hljs.highlightElement(code);
     code.dataset.highlighted = 'yes';
     highlightCache.set(cacheKey, code.innerHTML);
@@ -621,7 +684,11 @@ async function renderContent(data) {
     content.innerHTML = data.html ?? '';
     setTheme(data.theme);
     enableTaskCheckboxes(content);
-    renderMath(content);
+    await renderMath(content, generation);
+
+    if (generation !== renderGeneration) {
+      return;
+    }
 
     if (sameDocument) {
       restoreScrollPercent(previousScroll);
@@ -671,17 +738,17 @@ async function preparePrint() {
       continue;
     }
 
-    applyHighlight(code);
+    await applyHighlight(code);
   }
 
   await waitForImages();
   await new Promise((resolve) => requestAnimationFrame(() => resolve()));
 }
 
-function buildExportHtml() {
+async function buildExportHtml() {
   for (const code of content.querySelectorAll('pre code')) {
     if (!isMermaidCode(code)) {
-      applyHighlight(code);
+      await applyHighlight(code);
     }
   }
 
@@ -709,6 +776,14 @@ window.chrome?.webview?.addEventListener('message', async (event) => {
   }
 
   switch (data.type) {
+    case 'configure':
+      if (typeof data.theme === 'string') {
+        setTheme(data.theme);
+      }
+      if (data.fontSize !== undefined) {
+        setFontSize(data.fontSize);
+      }
+      break;
     case 'render':
       await renderContent(data);
       break;
@@ -724,7 +799,7 @@ window.chrome?.webview?.addEventListener('message', async (event) => {
       break;
     }
     case 'exportHtml':
-      send({ type: 'exportHtml', id: data.id, html: buildExportHtml() });
+      send({ type: 'exportHtml', id: data.id, html: await buildExportHtml() });
       break;
     case 'preparePrint':
       await preparePrint();

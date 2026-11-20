@@ -8,11 +8,11 @@ public static class ThemeResourceManager
     private static ResourceDictionary? _currentDictionary;
     private static string? _currentUri;
 
-    public static void Apply(AppThemeDefinition theme)
+    public static bool Apply(AppThemeDefinition theme)
     {
         if (string.Equals(_currentUri, theme.ResourceUri, StringComparison.Ordinal))
         {
-            return;
+            return false;
         }
 
         var dictionaries = Application.Current.Resources.MergedDictionaries;
@@ -26,7 +26,7 @@ public static class ThemeResourceManager
 
         if (theme.ResourceUri is null)
         {
-            return;
+            return true;
         }
 
         var dictionary = new ResourceDictionary
@@ -37,5 +37,6 @@ public static class ThemeResourceManager
         dictionaries.Add(dictionary);
         _currentDictionary = dictionary;
         _currentUri = theme.ResourceUri;
+        return true;
     }
 }

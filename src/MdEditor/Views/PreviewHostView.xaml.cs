@@ -32,6 +32,8 @@ public sealed partial class PreviewHostView : UserControl, IPreviewHost
 
     public event EventHandler<PreviewTaskToggledEventArgs>? TaskToggled;
 
+    public bool IsReady => _initializeTask is { IsCompletedSuccessfully: true };
+
     public Task InitializeAsync()
     {
         return _initializeTask ??= InitializeCoreAsync();
@@ -116,54 +118,52 @@ public sealed partial class PreviewHostView : UserControl, IPreviewHost
         }
     }
 
-    public async Task SetThemeAsync(string theme)
+    public Task SetThemeAsync(string theme)
     {
         _theme = AppThemeCatalog.FromWebTheme(theme).WebTheme;
+        SetBackground(_theme);
 
-        if (_initializeTask is null)
+        if (IsReady)
         {
-            return;
+            Post(new
+            {
+                type = "theme",
+                theme = _theme,
+            });
         }
 
-        await InitializeAsync();
-        Post(new
-        {
-            type = "theme",
-            theme = _theme,
-        });
+        return Task.CompletedTask;
     }
 
-    public async Task SetFontSizeAsync(double size)
+    public Task SetFontSizeAsync(double size)
     {
         _fontSize = Math.Clamp(size, 10, 28);
 
-        if (_initializeTask is null)
+        if (IsReady)
         {
-            return;
+            Post(new
+            {
+                type = "font",
+                size = _fontSize,
+            });
         }
 
-        await InitializeAsync();
-        Post(new
-        {
-            type = "font",
-            size = _fontSize,
-        });
+        return Task.CompletedTask;
     }
 
-    public async Task SetScrollPercentAsync(double percent, double line = 0)
+    public Task SetScrollPercentAsync(double percent, double line = 0)
     {
-        if (_initializeTask is null)
+        if (IsReady)
         {
-            return;
+            Post(new
+            {
+                type = "scroll",
+                percent,
+                line,
+            });
         }
 
-        await InitializeAsync();
-        Post(new
-        {
-            type = "scroll",
-            percent,
-            line,
-        });
+        return Task.CompletedTask;
     }
 
     public void Close()
@@ -257,8 +257,12 @@ public sealed partial class PreviewHostView : UserControl, IPreviewHost
             WebView.Source = new Uri("https://app.local/Preview/preview.html");
             await _readySource.Task.WaitAsync(TimeSpan.FromSeconds(15));
             LoadingPanel.Visibility = Visibility.Collapsed;
-            Post(new { type = "theme", theme = _theme });
-            Post(new { type = "font", size = _fontSize });
+            Post(new
+            {
+                type = "configure",
+                theme = _theme,
+                fontSize = _fontSize,
+            });
         }
         catch (Exception ex)
         {

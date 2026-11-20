@@ -142,90 +142,85 @@ public sealed partial class EditorHostView : UserControl, IEditorHost
         });
     }
 
-    public async Task SetThemeAsync(string theme)
+    public Task SetThemeAsync(string theme)
     {
         _theme = AppThemeCatalog.FromWebTheme(theme).WebTheme;
         SetBackground(_theme);
 
-        if (_initializeTask is null)
+        if (IsReady)
         {
-            return;
+            Post(new
+            {
+                type = "theme",
+                theme = _theme,
+            });
         }
 
-        await InitializeAsync();
-        Post(new
-        {
-            type = "theme",
-            theme = _theme,
-        });
+        return Task.CompletedTask;
     }
 
-    public async Task SetWordWrapAsync(bool enabled)
+    public Task SetWordWrapAsync(bool enabled)
     {
         _wordWrap = enabled;
 
-        if (_initializeTask is null)
+        if (IsReady)
         {
-            return;
+            Post(new
+            {
+                type = "wordWrap",
+                enabled,
+            });
         }
 
-        await InitializeAsync();
-        Post(new
-        {
-            type = "wordWrap",
-            enabled,
-        });
+        return Task.CompletedTask;
     }
 
-    public async Task SetFontSizeAsync(double size)
+    public Task SetFontSizeAsync(double size)
     {
         _fontSize = Math.Clamp(size, 10, 28);
 
-        if (_initializeTask is null)
+        if (IsReady)
         {
-            return;
+            Post(new
+            {
+                type = "font",
+                size = _fontSize,
+            });
         }
 
-        await InitializeAsync();
-        Post(new
-        {
-            type = "font",
-            size = _fontSize,
-        });
+        return Task.CompletedTask;
     }
 
-    public async Task SetFontFamilyAsync(string family)
+    public Task SetFontFamilyAsync(string family)
     {
         _fontFamily = string.IsNullOrWhiteSpace(family) ? "Cascadia Mono" : family.Trim();
 
-        if (_initializeTask is null)
+        if (IsReady)
         {
-            return;
+            Post(new
+            {
+                type = "fontFamily",
+                family = _fontFamily,
+            });
         }
 
-        await InitializeAsync();
-        Post(new
-        {
-            type = "fontFamily",
-            family = _fontFamily,
-        });
+        return Task.CompletedTask;
     }
 
-    public async Task SetIncludeTextInChangeAsync(bool enabled)
+    public Task SetIncludeTextInChangeAsync(bool enabled)
     {
         _includeTextInChange = enabled;
 
-        if (_initializeTask is null)
+        if (IsReady)
         {
-            return;
+            Post(new
+            {
+                type = "changeMode",
+                includeText = _includeTextInChange,
+            });
         }
 
-        await InitializeAsync();
-        Post(new
-        {
-            type = "changeMode",
-            includeText = _includeTextInChange,
-        });
+        return Task.CompletedTask;
     }
 
     public Task SetReadOnlyAsync(bool enabled)
@@ -296,15 +291,16 @@ public sealed partial class EditorHostView : UserControl, IEditorHost
             await _readySource.Task.WaitAsync(TimeSpan.FromSeconds(15));
             LoadingPanel.Visibility = Visibility.Collapsed;
 
-            Post(new { type = "theme", theme = _theme });
-            Post(new { type = "wordWrap", enabled = _wordWrap });
-            Post(new { type = "fontFamily", family = _fontFamily });
-            Post(new { type = "font", size = _fontSize });
-            Post(new { type = "changeMode", includeText = _includeTextInChange });
-            if (_readOnly)
+            Post(new
             {
-                Post(new { type = "readOnly", enabled = true });
-            }
+                type = "configure",
+                theme = _theme,
+                wordWrap = _wordWrap,
+                fontFamily = _fontFamily,
+                fontSize = _fontSize,
+                includeText = _includeTextInChange,
+                readOnly = _readOnly,
+            });
         }
         catch (Exception ex)
         {

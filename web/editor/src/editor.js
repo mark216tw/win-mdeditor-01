@@ -582,6 +582,45 @@ function setFontFamily(family) {
     `"${value}", "Cascadia Mono", Consolas, monospace`);
 }
 
+function applyConfiguration(data) {
+  const effects = [];
+
+  if (typeof data.theme === 'string') {
+    currentTheme = normalizeTheme(data.theme);
+    document.documentElement.dataset.theme = currentTheme;
+    effects.push(themeCompartment.reconfigure(themeExtensions(currentTheme)));
+  }
+
+  if (typeof data.wordWrap === 'boolean') {
+    currentWordWrap = data.wordWrap;
+    effects.push(wrapCompartment.reconfigure(currentWordWrap ? EditorView.lineWrapping : []));
+  }
+
+  if (typeof data.fontFamily === 'string') {
+    setFontFamily(data.fontFamily);
+  }
+
+  if (data.fontSize !== undefined) {
+    setFontSize(data.fontSize);
+  }
+
+  if (typeof data.includeText === 'boolean') {
+    includeTextInChange = data.includeText;
+  }
+
+  if (typeof data.readOnly === 'boolean') {
+    currentReadOnly = data.readOnly;
+    effects.push(readOnlyCompartment.reconfigure([
+      EditorState.readOnly.of(currentReadOnly),
+      EditorView.editable.of(!currentReadOnly),
+    ]));
+  }
+
+  if (effects.length > 0) {
+    view.dispatch({ effects });
+  }
+}
+
 function currentSelection() {
   const selection = view.state.selection.main;
   return {
@@ -879,6 +918,9 @@ window.chrome?.webview?.addEventListener('message', (event) => {
       break;
     case 'command':
       applyCommand(data.name);
+      break;
+    case 'configure':
+      applyConfiguration(data);
       break;
     case 'theme':
       setTheme(data.theme);

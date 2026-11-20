@@ -68,7 +68,7 @@ public sealed class SessionDraftService : ISessionDraftService
 
             DeleteOrphanDraftFiles(manifest.Documents ?? []);
 
-            var documents = new List<DraftDocumentSnapshot>();
+            var uniqueEntries = new List<DraftManifestEntry>();
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             foreach (var entry in manifest.Documents ?? [])
@@ -78,65 +78,23 @@ public sealed class SessionDraftService : ISessionDraftService
                     continue;
                 }
 
-                var draftPath = GetDocumentPath(entry.DocumentId);
+                uniqueEntries.Add(entry);
+            }
 
-                if (!File.Exists(draftPath))
+            var loadedSnapshots = await Task.WhenAll(
+                uniqueEntries.Select(entry => LoadDocumentSnapshotAsync(entry, cancellationToken)))
+                .ConfigureAwait(false);
+
+            var documents = new List<DraftDocumentSnapshot>(loadedSnapshots.Length);
+            foreach (var snapshot in loadedSnapshots)
+            {
+                if (snapshot is null)
                 {
-                    if (entry.PersistText || entry.IsDirty || string.IsNullOrWhiteSpace(entry.FilePath))
-                    {
-                        continue;
-                    }
-
-                    documents.Add(new DraftDocumentSnapshot(
-                        entry.DocumentId,
-                        entry.Title,
-                        entry.FilePath,
-                        string.Empty,
-                        entry.EncodingName,
-                        entry.CodePage,
-                        entry.HasBom,
-                        entry.LineEnding,
-                        entry.IsDirty,
-                        entry.LastKnownHash,
-                        entry.LastWriteTimeUtc,
-                        entry.Revision,
-                        PersistText: false));
-
-                    _persistedRevisions[entry.DocumentId] = entry.Revision;
                     continue;
                 }
 
-                try
-                {
-                    var json = await File.ReadAllTextAsync(draftPath, cancellationToken).ConfigureAwait(false);
-                    var draft = JsonSerializer.Deserialize<DraftDocumentFile>(json, JsonOptions);
-
-                    if (draft is null ||
-                        !string.Equals(draft.DocumentId, entry.DocumentId, StringComparison.OrdinalIgnoreCase))
-                    {
-                        continue;
-                    }
-
-                    documents.Add(new DraftDocumentSnapshot(
-                        entry.DocumentId,
-                        entry.Title,
-                        entry.FilePath,
-                        draft.Text ?? string.Empty,
-                        entry.EncodingName,
-                        entry.CodePage,
-                        entry.HasBom,
-                        entry.LineEnding,
-                        entry.IsDirty,
-                        entry.LastKnownHash,
-                        entry.LastWriteTimeUtc,
-                        entry.Revision,
-                        entry.PersistText));
-
-                    _persistedRevisions[entry.DocumentId] = entry.Revision;
-                }
-                catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
-                {
-                }
+                documents.Add(snapshot);
+                _persistedRevisions[snapshot.DocumentId] = snapshot.Revision;
             }
 
             if (documents.Count == 0)
@@ -270,6 +228,67 @@ public sealed class SessionDraftService : ISessionDraftService
         finally
         {
             _lock.Release();
+        }
+    }
+
+    private async Task<DraftDocumentSnapshot?> LoadDocumentSnapshotAsync(
+        DraftManifestEntry entry,
+        CancellationToken cancellationToken)
+    {
+        var draftPath = GetDocumentPath(entry.DocumentId);
+
+        if (!File.Exists(draftPath))
+        {
+            if (entry.PersistText || entry.IsDirty || string.IsNullOrWhiteSpace(entry.FilePath))
+            {
+                return null;
+            }
+
+            return new DraftDocumentSnapshot(
+                entry.DocumentId,
+                entry.Title,
+                entry.FilePath,
+                string.Empty,
+                entry.EncodingName,
+                entry.CodePage,
+                entry.HasBom,
+                entry.LineEnding,
+                entry.IsDirty,
+                entry.LastKnownHash,
+                entry.LastWriteTimeUtc,
+                entry.Revision,
+                PersistText: false);
+        }
+
+        try
+        {
+            var json = await File.ReadAllTextAsync(draftPath, cancellationToken).ConfigureAwait(false);
+            var draft = JsonSerializer.Deserialize<DraftDocumentFile>(json, JsonOptions);
+
+            if (draft is null ||
+                !string.Equals(draft.DocumentId, entry.DocumentId, StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            return new DraftDocumentSnapshot(
+                entry.DocumentId,
+                entry.Title,
+                entry.FilePath,
+                draft.Text ?? string.Empty,
+                entry.EncodingName,
+                entry.CodePage,
+                entry.HasBom,
+                entry.LineEnding,
+                entry.IsDirty,
+                entry.LastKnownHash,
+                entry.LastWriteTimeUtc,
+                entry.Revision,
+                entry.PersistText);
+        }
+        catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
+        {
+            return null;
         }
     }
 

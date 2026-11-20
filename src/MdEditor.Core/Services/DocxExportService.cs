@@ -30,16 +30,19 @@ public interface IDocxExportService
 
 public sealed class DocxExportService : IDocxExportService
 {
-    private readonly MarkdownPipeline _pipeline;
+    private readonly Lazy<MarkdownPipeline> _pipeline;
 
     public DocxExportService()
-        : this(MarkdownPipelineFactory.Create())
     {
+        _pipeline = new Lazy<MarkdownPipeline>(
+            () => MarkdownPipelineFactory.Create(),
+            LazyThreadSafetyMode.ExecutionAndPublication);
     }
 
     public DocxExportService(MarkdownPipeline pipeline)
     {
-        _pipeline = pipeline;
+        ArgumentNullException.ThrowIfNull(pipeline);
+        _pipeline = new Lazy<MarkdownPipeline>(pipeline);
     }
 
     public Task ExportAsync(
@@ -66,7 +69,7 @@ public sealed class DocxExportService : IDocxExportService
 
         Directory.CreateDirectory(directory);
 
-        var document = Markdown.Parse(markdown ?? string.Empty, _pipeline);
+        var document = Markdown.Parse(markdown ?? string.Empty, _pipeline.Value);
 
         using var wordDocument = WordprocessingDocument.Create(fullPath, WordprocessingDocumentType.Document);
         var mainPart = wordDocument.AddMainDocumentPart();

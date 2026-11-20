@@ -301,13 +301,18 @@ public sealed partial class MainWindow : Window
 
     private void OnThemeChanged(object? sender, AppThemeDefinition theme)
     {
-        ThemeResourceManager.Apply(theme);
+        var resourcesChanged = ThemeResourceManager.Apply(theme);
 
         var requestedTheme = theme.IsDark
             ? ElementTheme.Dark
             : ElementTheme.Light;
 
-        if (RootGrid.RequestedTheme == requestedTheme)
+        if (!resourcesChanged && RootGrid.RequestedTheme == requestedTheme)
+        {
+            return;
+        }
+
+        if (resourcesChanged && RootGrid.RequestedTheme == requestedTheme)
         {
             RootGrid.RequestedTheme = requestedTheme == ElementTheme.Dark
                 ? ElementTheme.Light

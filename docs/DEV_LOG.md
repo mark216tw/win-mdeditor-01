@@ -4,6 +4,27 @@
 
 ---
 
+## 2026-11-20 - v1.1.3
+
+### 目標
+提高應用程式啟動速度，縮短視窗顯示與首次編輯器可用時間。
+
+### 變更
+- `src/MdEditor/Views/EditorHostView.xaml.cs`、`src/MdEditor/Views/PreviewHostView.xaml.cs`、`src/MdEditor/ViewModels/MainViewModel.cs`：尚未 `IsReady` 前套用偏好設定改為僅更新快取欄位而不再 `await InitializeAsync()`，解除啟動時預覽 WebView2 對編輯器載入文件的串行阻塞；並將初始化後的多筆偏好訊息合併為單一 `configure` 訊息。
+- `web/build.mjs`、`web/editor/src/languages.js`、`web/editor/src/editor.js`、`web/preview/src/preview.js`、`src/MdEditor/Assets/Editor/editor.html`、`src/MdEditor/Assets/Preview/preview.html`：前端建置改用 ES module + code splitting；編輯器 15 種程式碼區塊語法改為按需動態載入（初始載入從 895 KB 降至 ~451 KB）；預覽區 `katex` 與 `highlight.js` 改為按需動態載入（`preview.bundle.js` 從 434 KB 降至 11.6 KB）。
+- `src/MdEditor/App.xaml.cs`：改用 `Host.CreateEmptyApplicationBuilder(DisableDefaults = true)` 省去未使用的設定檔監視與預設 Logger 建立；將 `ApplyInitialWindowLayout()` 移至 `Activate()` 之前避免啟動閃爍與額外重排。
+- `src/MdEditor.Core/Services/MarkdownRenderer.cs`、`src/MdEditor.Core/Services/DocxExportService.cs`：`MarkdownPipeline` 改為 `Lazy<MarkdownPipeline>` 延遲建構，移出視窗建立前的 UI 執行緒冷啟動路徑。
+- `src/MdEditor/Services/ThemeResourceManager.cs`、`src/MdEditor/MainWindow.xaml.cs`：`ThemeResourceManager.Apply` 回傳是否實際變更資源字典，避免啟動時對 `RootGrid.RequestedTheme` 進行不必要的雙重翻轉重繪。
+- `src/MdEditor.Core/Services/SessionDraftService.cs`：載入多筆工作階段草稿時改用 `Task.WhenAll` 平行讀取。
+- `Directory.Build.props`、`CHANGELOG.md`、`RELEASE_NOTES.md`：版號遞增為 1.1.3 並同步紀錄。
+- `README.md`、`RELEASE_NOTES.md`、`docs/技術文件.md`、`docs/系統架構.md`、`docs/建置與發佈.md`：同步更新功能版本、下載檔名、ES module／`chunks` 資產、`configure` 訊息與啟動流程說明。
+
+### 問題與解法
+- 啟動時 `MainViewModel.InitializeAsync` 呼叫 `preview.SetFontSizeAsync` 與 `ApplyThemeAsync`（內部呼叫 `preview.SetThemeAsync`），因 `PreviewHostView` 已啟動初始化（`_initializeTask != null`），導致主流程被迫 `await` 等第二個 WebView2 完全載入後才載入文件 → 改為 `!IsReady` 時僅快取設定並於 `ready` 後一次 `configure`，編輯器就緒即可立刻顯示文件。
+
+### 待辦／已知限制
+- 尚未在 Windows 10 1809 與 ARM64 實機量測冷啟動毫秒數。
+
 ## 2026-11-09 - v1.1.2
 
 ### 目標
