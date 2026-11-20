@@ -30,7 +30,7 @@
   --mark-bg: #4b3b00;
 }
 
-:root[data-theme="sepia"] {
+:root[data-theme="sepia-light"] {
   --bg: #f4ecd8;
   --fg: #3a3122;
   --muted: #6b5d45;
@@ -46,7 +46,23 @@
   --mark-bg: #f5d97a;
 }
 
-:root[data-theme="morning"] {
+:root[data-theme="sepia-dark"] {
+  --bg: #262018;
+  --fg: #efe6d5;
+  --muted: #b8a88e;
+  --border: #4e4232;
+  --border-muted: #383024;
+  --accent: #d99b52;
+  --code-bg: #1e1912;
+  --inline-code-bg: #1a150f;
+  --code-border: #4e4232;
+  --inline-code-border: transparent;
+  --quote-bg: #2f281e;
+  --table-stripe: #2f281e;
+  --mark-bg: #5c4312;
+}
+
+:root[data-theme="morning-light"] {
   --bg: #f5f8fd;
   --fg: #1f2a3a;
   --muted: #5f6f85;
@@ -62,7 +78,23 @@
   --mark-bg: #fff3b0;
 }
 
-:root[data-theme="lavender"] {
+:root[data-theme="morning-dark"] {
+  --bg: #161e2b;
+  --fg: #e6eef8;
+  --muted: #a1b4ce;
+  --border: #344663;
+  --border-muted: #243146;
+  --accent: #5c9dff;
+  --code-bg: #111824;
+  --inline-code-bg: #0e141e;
+  --code-border: #344663;
+  --inline-code-border: transparent;
+  --quote-bg: #1d2738;
+  --table-stripe: #1d2738;
+  --mark-bg: #4d410f;
+}
+
+:root[data-theme="lavender-light"] {
   --bg: #f7f4fc;
   --fg: #2f283d;
   --muted: #6c6280;
@@ -78,23 +110,39 @@
   --mark-bg: #fff3b0;
 }
 
-:root[data-theme="nord"] {
-  --bg: #2e3440;
-  --fg: #eceff4;
-  --muted: #b8c2d4;
-  --border: #4c566a;
-  --border-muted: #3b4252;
-  --accent: #88c0d0;
-  --code-bg: #272c36;
-  --inline-code-bg: #232833;
-  --code-border: #4c566a;
+:root[data-theme="lavender-dark"] {
+  --bg: #201b2d;
+  --fg: #eeeaf7;
+  --muted: #b6accb;
+  --border: #483e61;
+  --border-muted: #322a45;
+  --accent: #b392f0;
+  --code-bg: #191524;
+  --inline-code-bg: #15111e;
+  --code-border: #483e61;
   --inline-code-border: transparent;
-  --quote-bg: #3b4252;
-  --table-stripe: #3b4252;
-  --mark-bg: #5a4a00;
+  --quote-bg: #292239;
+  --table-stripe: #292239;
+  --mark-bg: #554210;
 }
 
-:root[data-theme="forest"] {
+:root[data-theme="forest-light"] {
+  --bg: #f2f8f4;
+  --fg: #1e3024;
+  --muted: #4e6b57;
+  --border: #c1d9c8;
+  --border-muted: #d5e6da;
+  --accent: #2e7d4f;
+  --code-bg: #dfece3;
+  --inline-code-bg: #d5e6da;
+  --code-border: #c1d9c8;
+  --inline-code-border: transparent;
+  --quote-bg: #e9f3ec;
+  --table-stripe: #e9f3ec;
+  --mark-bg: #f5e99b;
+}
+
+:root[data-theme="forest-dark"] {
   --bg: #1b2a21;
   --fg: #e8f0e8;
   --muted: #a9c0ac;
@@ -110,20 +158,68 @@
   --mark-bg: #5a4a00;
 }
 
-:root[data-theme="highcontrast"] {
-  --bg: #000000;
-  --fg: #ffffff;
-  --muted: #e6e6e6;
-  --border: #ffffff;
-  --border-muted: #ffffff;
-  --accent: #ffff00;
-  --code-bg: #000000;
-  --inline-code-bg: #000000;
-  --code-border: #ffffff;
-  --inline-code-border: #ffffff;
-  --quote-bg: #0a0a0a;
-  --table-stripe: #111111;
-  --mark-bg: #ffff00;
+:root[data-theme="nord-light"] {
+  --bg: #eceff4;
+  --fg: #2e3440;
+  --muted: #4c566a;
+  --border: #c5cede;
+  --border-muted: #d8dee9;
+  --accent: #5e81ac;
+  --code-bg: #dce2ec;
+  --inline-code-bg: #d2dae6;
+  --code-border: #c5cede;
+  --inline-code-border: transparent;
+  --quote-bg: #e5e9f0;
+  --table-stripe: #e5e9f0;
+  --mark-bg: #f2df9b;
+}
+
+:root[data-theme="nord-dark"] {
+  --bg: #2e3440;
+  --fg: #eceff4;
+  --muted: #b8c2d4;
+  --border: #4c566a;
+  --border-muted: #3b4252;
+  --accent: #88c0d0;
+  --code-bg: #272c36;
+  --inline-code-bg: #232833;
+  --code-border: #4c566a;
+  --inline-code-border: transparent;
+  --quote-bg: #3b4252;
+  --table-stripe: #3b4252;
+  --mark-bg: #5a4a00;
+}
+
+:root[data-theme="rose-light"] {
+  --bg: #fdf4f6;
+  --fg: #38222a;
+  --muted: #73535e;
+  --border: #e4c5cf;
+  --border-muted: #efd9e0;
+  --accent: #c23b68;
+  --code-bg: #f2dde4;
+  --inline-code-bg: #ebd2da;
+  --code-border: #e4c5cf;
+  --inline-code-border: transparent;
+  --quote-bg: #f8e9ee;
+  --table-stripe: #f8e9ee;
+  --mark-bg: #fce79a;
+}
+
+:root[data-theme="rose-dark"] {
+  --bg: #281d22;
+  --fg: #f6eaef;
+  --muted: #c2aab5;
+  --border: #573f4b;
+  --border-muted: #3e2d35;
+  --accent: #f08ca8;
+  --code-bg: #20171b;
+  --inline-code-bg: #1b1317;
+  --code-border: #573f4b;
+  --inline-code-border: transparent;
+  --quote-bg: #33252c;
+  --table-stripe: #33252c;
+  --mark-bg: #5c4312;
 }
 
 * {

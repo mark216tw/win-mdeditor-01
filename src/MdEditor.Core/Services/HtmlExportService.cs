@@ -28,20 +28,29 @@ public sealed partial class HtmlExportService : IHtmlExportService
     {
         "light",
         "dark",
-        "sepia",
-        "morning",
-        "lavender",
-        "nord",
-        "forest",
-        "highcontrast",
+        "sepia-light",
+        "sepia-dark",
+        "morning-light",
+        "morning-dark",
+        "lavender-light",
+        "lavender-dark",
+        "forest-light",
+        "forest-dark",
+        "nord-light",
+        "nord-dark",
+        "rose-light",
+        "rose-dark",
     };
 
     private static readonly HashSet<string> DarkThemes = new(StringComparer.Ordinal)
     {
         "dark",
-        "nord",
-        "forest",
-        "highcontrast",
+        "sepia-dark",
+        "morning-dark",
+        "lavender-dark",
+        "forest-dark",
+        "nord-dark",
+        "rose-dark",
     };
 
     private readonly string _assetDirectory;

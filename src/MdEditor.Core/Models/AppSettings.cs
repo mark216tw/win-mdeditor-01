@@ -4,6 +4,8 @@ public sealed class AppSettings
 {
     public string Theme { get; set; } = "System";
 
+    public string ThemeColor { get; set; } = "Sepia";
+
     public string ViewMode { get; set; } = "Split";
 
     public string EditorFontFamily { get; set; } = "Cascadia Mono";

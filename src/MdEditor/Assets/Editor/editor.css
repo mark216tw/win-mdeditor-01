@@ -22,7 +22,7 @@
   --editor-font-size: 14px;
 }
 
-:root[data-theme="sepia"] {
+:root[data-theme="sepia-light"] {
   --cm-bg: #f4ecd8;
   --cm-fg: #3a3122;
   --cm-caret: #3a3122;
@@ -34,7 +34,19 @@
   --editor-font-size: 14px;
 }
 
-:root[data-theme="morning"] {
+:root[data-theme="sepia-dark"] {
+  --cm-bg: #262018;
+  --cm-fg: #efe6d5;
+  --cm-caret: #d99b52;
+  --cm-gutter-bg: #262018;
+  --cm-gutter-fg: #8c7d65;
+  --cm-active-line: rgba(217, 155, 82, 0.08);
+  --cm-selection: rgba(217, 155, 82, 0.24);
+  --editor-font-family: "Cascadia Mono", "Consolas", "Microsoft JhengHei", monospace;
+  --editor-font-size: 14px;
+}
+
+:root[data-theme="morning-light"] {
   --cm-bg: #f5f8fd;
   --cm-fg: #1f2a3a;
   --cm-caret: #2f6feb;
@@ -46,7 +58,19 @@
   --editor-font-size: 14px;
 }
 
-:root[data-theme="lavender"] {
+:root[data-theme="morning-dark"] {
+  --cm-bg: #161e2b;
+  --cm-fg: #e6eef8;
+  --cm-caret: #5c9dff;
+  --cm-gutter-bg: #161e2b;
+  --cm-gutter-fg: #6e84a3;
+  --cm-active-line: rgba(92, 157, 255, 0.08);
+  --cm-selection: rgba(92, 157, 255, 0.24);
+  --editor-font-family: "Cascadia Mono", "Consolas", "Microsoft JhengHei", monospace;
+  --editor-font-size: 14px;
+}
+
+:root[data-theme="lavender-light"] {
   --cm-bg: #f7f4fc;
   --cm-fg: #2f283d;
   --cm-caret: #7c5cbf;
@@ -58,19 +82,31 @@
   --editor-font-size: 14px;
 }
 
-:root[data-theme="nord"] {
-  --cm-bg: #2e3440;
-  --cm-fg: #eceff4;
-  --cm-caret: #88c0d0;
-  --cm-gutter-bg: #2e3440;
-  --cm-gutter-fg: #7b88a1;
-  --cm-active-line: rgba(136, 192, 208, 0.08);
-  --cm-selection: rgba(136, 192, 208, 0.25);
+:root[data-theme="lavender-dark"] {
+  --cm-bg: #201b2d;
+  --cm-fg: #eeeaf7;
+  --cm-caret: #b392f0;
+  --cm-gutter-bg: #201b2d;
+  --cm-gutter-fg: #84799c;
+  --cm-active-line: rgba(179, 146, 240, 0.08);
+  --cm-selection: rgba(179, 146, 240, 0.24);
   --editor-font-family: "Cascadia Mono", "Consolas", "Microsoft JhengHei", monospace;
   --editor-font-size: 14px;
 }
 
-:root[data-theme="forest"] {
+:root[data-theme="forest-light"] {
+  --cm-bg: #f2f8f4;
+  --cm-fg: #1e3024;
+  --cm-caret: #2e7d4f;
+  --cm-gutter-bg: #e6f1e9;
+  --cm-gutter-fg: #75917e;
+  --cm-active-line: rgba(46, 125, 79, 0.08);
+  --cm-selection: rgba(46, 125, 79, 0.18);
+  --editor-font-family: "Cascadia Mono", "Consolas", "Microsoft JhengHei", monospace;
+  --editor-font-size: 14px;
+}
+
+:root[data-theme="forest-dark"] {
   --cm-bg: #1b2a21;
   --cm-fg: #e8f0e8;
   --cm-caret: #7bc96f;
@@ -82,14 +118,50 @@
   --editor-font-size: 14px;
 }
 
-:root[data-theme="highcontrast"] {
-  --cm-bg: #000000;
-  --cm-fg: #ffffff;
-  --cm-caret: #ffff00;
-  --cm-gutter-bg: #000000;
-  --cm-gutter-fg: #ffffff;
-  --cm-active-line: rgba(255, 255, 0, 0.12);
-  --cm-selection: rgba(255, 255, 0, 0.3);
+:root[data-theme="nord-light"] {
+  --cm-bg: #eceff4;
+  --cm-fg: #2e3440;
+  --cm-caret: #5e81ac;
+  --cm-gutter-bg: #e5e9f0;
+  --cm-gutter-fg: #6b778d;
+  --cm-active-line: rgba(94, 129, 172, 0.08);
+  --cm-selection: rgba(94, 129, 172, 0.2);
+  --editor-font-family: "Cascadia Mono", "Consolas", "Microsoft JhengHei", monospace;
+  --editor-font-size: 14px;
+}
+
+:root[data-theme="nord-dark"] {
+  --cm-bg: #2e3440;
+  --cm-fg: #eceff4;
+  --cm-caret: #88c0d0;
+  --cm-gutter-bg: #2e3440;
+  --cm-gutter-fg: #7b88a1;
+  --cm-active-line: rgba(136, 192, 208, 0.08);
+  --cm-selection: rgba(136, 192, 208, 0.25);
+  --editor-font-family: "Cascadia Mono", "Consolas", "Microsoft JhengHei", monospace;
+  --editor-font-size: 14px;
+}
+
+:root[data-theme="rose-light"] {
+  --cm-bg: #fdf4f6;
+  --cm-fg: #38222a;
+  --cm-caret: #c23b68;
+  --cm-gutter-bg: #f7e8ed;
+  --cm-gutter-fg: #997a85;
+  --cm-active-line: rgba(194, 59, 104, 0.08);
+  --cm-selection: rgba(194, 59, 104, 0.18);
+  --editor-font-family: "Cascadia Mono", "Consolas", "Microsoft JhengHei", monospace;
+  --editor-font-size: 14px;
+}
+
+:root[data-theme="rose-dark"] {
+  --cm-bg: #281d22;
+  --cm-fg: #f6eaef;
+  --cm-caret: #f08ca8;
+  --cm-gutter-bg: #281d22;
+  --cm-gutter-fg: #947a86;
+  --cm-active-line: rgba(240, 140, 168, 0.08);
+  --cm-selection: rgba(240, 140, 168, 0.24);
   --editor-font-family: "Cascadia Mono", "Consolas", "Microsoft JhengHei", monospace;
   --editor-font-size: 14px;
 }

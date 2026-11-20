@@ -138,6 +138,7 @@ public partial class App : Application
 
         var theme = AppThemeCatalog.Resolve(
             settings.Settings.Theme,
+            settings.Settings.ThemeColor,
             Application.Current.RequestedTheme == ApplicationTheme.Dark);
 
         ThemeResourceManager.Apply(theme);

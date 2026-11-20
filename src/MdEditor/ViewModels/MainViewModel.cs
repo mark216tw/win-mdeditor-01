@@ -61,6 +61,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private bool _activeDocumentTextStale;
     private int _untitledCounter;
     private string _currentTheme = "light";
+    private string _activeDisplayMode = "System";
+    private string _activeThemeColor = "Sepia";
     private bool _disposed;
 
     public MainViewModel(
@@ -175,6 +177,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     public string CurrentTheme => _settings.Settings.Theme;
 
+    public string CurrentThemeColor => _settings.Settings.ThemeColor;
+
     public bool SyncScrollingEnabled => _settings.Settings.SyncScrolling;
 
     public bool WordWrapEnabled => _settings.Settings.WordWrap;
@@ -217,7 +221,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         await editor.SetFontFamilyAsync(_settings.Settings.EditorFontFamily);
         await editor.SetFontSizeAsync(_settings.Settings.EditorFontSize);
         await preview.SetFontSizeAsync(_settings.Settings.EditorFontSize);
-        await ApplyThemeAsync(_settings.Settings.Theme, save: false);
+        await ApplyThemeAsync(_settings.Settings.Theme, _settings.Settings.ThemeColor, save: false);
 
         var editorInitTask = editor.InitializeAsync();
         var sessionLoadTask = LoadSessionDraftAsync();
@@ -308,28 +312,39 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         await _settings.SaveAsync();
     }
 
-    public async Task SetThemeAsync(string theme)
+    public async Task SetThemeAsync(string theme, string? themeColor = null)
     {
         _settings.Settings.Theme = theme;
+        if (!string.IsNullOrWhiteSpace(themeColor))
+        {
+            _settings.Settings.ThemeColor = themeColor;
+        }
+
         await _settings.SaveAsync();
-        await ApplyThemeAsync(theme, save: false);
+        await ApplyThemeAsync(_settings.Settings.Theme, _settings.Settings.ThemeColor, save: false);
         OnPropertyChanged(nameof(CurrentTheme));
+        OnPropertyChanged(nameof(CurrentThemeColor));
+    }
+
+    public Task PreviewThemeAsync(string displayMode, string themeColor)
+    {
+        return ApplyThemeAsync(displayMode, themeColor, save: false);
     }
 
     public async Task RefreshSystemThemeAsync()
     {
-        if (!string.Equals(_settings.Settings.Theme, "System", StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(_activeDisplayMode, "System", StringComparison.OrdinalIgnoreCase))
         {
             return;
         }
 
-        var resolved = AppThemeCatalog.Resolve("System", IsSystemDark());
+        var resolved = AppThemeCatalog.Resolve("System", _activeThemeColor, IsSystemDark());
         if (string.Equals(resolved.WebTheme, _currentTheme, StringComparison.Ordinal))
         {
             return;
         }
 
-        await ApplyThemeAsync("System", save: false);
+        await ApplyThemeAsync(_activeDisplayMode, _activeThemeColor, save: false);
     }
 
     private bool IsSystemDark()
@@ -340,12 +355,14 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     public async Task ApplyPreferencesAsync(
         string theme,
+        string themeColor,
         bool syncScrolling,
         bool wordWrap,
         string fontFamily,
         double fontSize)
     {
         _settings.Settings.Theme = theme;
+        _settings.Settings.ThemeColor = themeColor;
         _settings.Settings.SyncScrolling = syncScrolling;
         _settings.Settings.WordWrap = wordWrap;
         _settings.Settings.EditorFontFamily = string.IsNullOrWhiteSpace(fontFamily)
@@ -353,7 +370,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             : fontFamily.Trim();
         _settings.Settings.EditorFontSize = Math.Clamp(fontSize, 10, 28);
         await _settings.SaveAsync();
-        await ApplyThemeAsync(theme, save: false);
+        await ApplyThemeAsync(theme, themeColor, save: false);
 
         if (_editor is not null)
         {
@@ -368,6 +385,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         }
 
         OnPropertyChanged(nameof(CurrentTheme));
+        OnPropertyChanged(nameof(CurrentThemeColor));
         OnPropertyChanged(nameof(SyncScrollingEnabled));
         OnPropertyChanged(nameof(WordWrapEnabled));
         OnPropertyChanged(nameof(EditorFontFamily));
@@ -1572,10 +1590,14 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             string.Equals(entry.Path, path, StringComparison.OrdinalIgnoreCase));
     }
 
-    private async Task ApplyThemeAsync(string theme, bool save)
+    private async Task ApplyThemeAsync(string displayMode, string themeColor, bool save)
     {
+        _activeDisplayMode = displayMode;
+        _activeThemeColor = themeColor;
+
         var resolved = AppThemeCatalog.Resolve(
-            theme,
+            displayMode,
+            themeColor,
             IsSystemDark());
 
         _currentTheme = resolved.WebTheme;

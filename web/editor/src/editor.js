@@ -71,14 +71,28 @@ const darkThemeExtensions = [
 const knownThemes = new Set([
   'light',
   'dark',
-  'sepia',
-  'morning',
-  'lavender',
-  'nord',
-  'forest',
-  'highcontrast',
+  'sepia-light',
+  'sepia-dark',
+  'morning-light',
+  'morning-dark',
+  'lavender-light',
+  'lavender-dark',
+  'forest-light',
+  'forest-dark',
+  'nord-light',
+  'nord-dark',
+  'rose-light',
+  'rose-dark',
 ]);
-const darkThemes = new Set(['dark', 'nord', 'forest', 'highcontrast']);
+const darkThemes = new Set([
+  'dark',
+  'sepia-dark',
+  'morning-dark',
+  'lavender-dark',
+  'forest-dark',
+  'nord-dark',
+  'rose-dark',
+]);
 const phrases = {
   'Find': '尋找',
   'Replace': '取代',

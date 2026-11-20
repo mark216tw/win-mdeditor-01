@@ -6,37 +6,41 @@ namespace VibeCode.MdEditor.Views;
 
 public sealed partial class PreferencesDialog : ContentDialog
 {
+    private readonly bool _isInitializing;
+
     public PreferencesDialog(
-        string theme,
+        string displayMode,
+        string themeColor,
         bool syncScrolling,
         bool wordWrap,
         double fontSize,
         string editorFontFamily,
         bool fileAssociationRegistered)
     {
+        _isInitializing = true;
         InitializeComponent();
 
-        foreach (var definition in AppThemeCatalog.All)
+        foreach (var option in AppThemeCatalog.DisplayModes)
         {
-            ThemeComboBox.Items.Add(new ComboBoxItem
+            DisplayModeComboBox.Items.Add(new ComboBoxItem
             {
-                Content = definition.DisplayName,
-                Tag = definition.Id,
+                Content = option.DisplayName,
+                Tag = option.Id,
             });
         }
 
-        var selectedIndex = 0;
-        for (var index = 0; index < ThemeComboBox.Items.Count; index++)
+        DisplayModeComboBox.SelectedIndex = FindComboBoxIndex(DisplayModeComboBox, displayMode);
+
+        foreach (var option in AppThemeCatalog.ThemeColors)
         {
-            if (ThemeComboBox.Items[index] is ComboBoxItem { Tag: string id } &&
-                string.Equals(id, theme, StringComparison.OrdinalIgnoreCase))
+            ThemeColorComboBox.Items.Add(new ComboBoxItem
             {
-                selectedIndex = index;
-                break;
-            }
+                Content = option.DisplayName,
+                Tag = option.Id,
+            });
         }
 
-        ThemeComboBox.SelectedIndex = selectedIndex;
+        ThemeColorComboBox.SelectedIndex = FindComboBoxIndex(ThemeColorComboBox, themeColor);
 
         foreach (var option in EditorFontCatalog.All)
         {
@@ -78,26 +82,18 @@ public sealed partial class PreferencesDialog : ContentDialog
 
         FontSizeComboBox.SelectedIndex = roundedSize - 10;
         FileAssociationToggle.IsOn = fileAssociationRegistered;
+        _isInitializing = false;
     }
 
     public event EventHandler? OpenDefaultAppsRequested;
 
-    private int FindFontFamilyIndex(string family)
-    {
-        for (var index = 0; index < FontFamilyComboBox.Items.Count; index++)
-        {
-            if (FontFamilyComboBox.Items[index] is ComboBoxItem { Tag: string value } &&
-                string.Equals(value, family, StringComparison.OrdinalIgnoreCase))
-            {
-                return index;
-            }
-        }
+    public event EventHandler? ThemeSelectionChanged;
 
-        return -1;
-    }
+    public string SelectedDisplayMode =>
+        (DisplayModeComboBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "System";
 
-    public string SelectedTheme =>
-        (ThemeComboBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "System";
+    public string SelectedThemeColor =>
+        (ThemeColorComboBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "Sepia";
 
     public bool SyncScrollingEnabled => SyncScrollingToggle.IsOn;
 
@@ -115,6 +111,44 @@ public sealed partial class PreferencesDialog : ContentDialog
     {
         AssociationInfoBar.Message = message;
         AssociationInfoBar.IsOpen = true;
+    }
+
+    private static int FindComboBoxIndex(ComboBox comboBox, string value)
+    {
+        for (var index = 0; index < comboBox.Items.Count; index++)
+        {
+            if (comboBox.Items[index] is ComboBoxItem { Tag: string id } &&
+                string.Equals(id, value, StringComparison.OrdinalIgnoreCase))
+            {
+                return index;
+            }
+        }
+
+        return 0;
+    }
+
+    private int FindFontFamilyIndex(string family)
+    {
+        for (var index = 0; index < FontFamilyComboBox.Items.Count; index++)
+        {
+            if (FontFamilyComboBox.Items[index] is ComboBoxItem { Tag: string value } &&
+                string.Equals(value, family, StringComparison.OrdinalIgnoreCase))
+            {
+                return index;
+            }
+        }
+
+        return -1;
+    }
+
+    private void ThemeComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_isInitializing)
+        {
+            return;
+        }
+
+        ThemeSelectionChanged?.Invoke(this, EventArgs.Empty);
     }
 
     private void OpenDefaultAppsButton_Click(object sender, RoutedEventArgs e)

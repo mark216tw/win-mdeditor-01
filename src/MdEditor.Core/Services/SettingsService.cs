@@ -106,10 +106,7 @@ public sealed class SettingsService : ISettingsService
     {
         settings.RecentFiles ??= [];
 
-        if (settings.Theme is not ("System" or "Light" or "Dark" or "Sepia" or "Morning" or "Lavender" or "Nord" or "Forest" or "HighContrast"))
-        {
-            settings.Theme = "System";
-        }
+        NormalizeThemeSettings(settings);
 
         if (settings.ViewMode is not ("Edit" or "Preview" or "Split"))
         {
@@ -129,6 +126,38 @@ public sealed class SettingsService : ISettingsService
         settings.RecentFilesLimit = Math.Clamp(settings.RecentFilesLimit, 5, 100);
         settings.WindowWidth = Math.Clamp(settings.WindowWidth, 800, 10000);
         settings.WindowHeight = Math.Clamp(settings.WindowHeight, 500, 10000);
+    }
+
+    private static void NormalizeThemeSettings(AppSettings settings)
+    {
+        switch (settings.Theme)
+        {
+            case "System" or "Light" or "Dark":
+                break;
+
+            case "Sepia" or "Morning" or "Lavender":
+                settings.ThemeColor = settings.Theme;
+                settings.Theme = "Light";
+                break;
+
+            case "Nord" or "Forest":
+                settings.ThemeColor = settings.Theme;
+                settings.Theme = "Dark";
+                break;
+
+            case "HighContrast":
+                settings.Theme = "Dark";
+                break;
+
+            default:
+                settings.Theme = "System";
+                break;
+        }
+
+        if (settings.ThemeColor is not ("Sepia" or "Morning" or "Lavender" or "Forest" or "Nord" or "Rose"))
+        {
+            settings.ThemeColor = "Sepia";
+        }
     }
 
     private void TryBackupCorruptFile()

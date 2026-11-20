@@ -35,6 +35,7 @@ public sealed partial class MainWindow : Window
     private PointInt32 _lastNormalPosition;
     private double _editorSplitRatio = 0.5;
     private string? _recentMenuSignature;
+    private ContentDialog? _activeDialog;
     private bool _syncingTabs;
     private bool _isClosing;
     private bool _allowClose;
@@ -307,19 +308,32 @@ public sealed partial class MainWindow : Window
             ? ElementTheme.Dark
             : ElementTheme.Light;
 
-        if (!resourcesChanged && RootGrid.RequestedTheme == requestedTheme)
+        ApplyElementTheme(RootGrid, requestedTheme, resourcesChanged);
+
+        if (_activeDialog is not null)
+        {
+            ApplyElementTheme(_activeDialog, requestedTheme, resourcesChanged);
+        }
+    }
+
+    private static void ApplyElementTheme(
+        FrameworkElement element,
+        ElementTheme requestedTheme,
+        bool resourcesChanged)
+    {
+        if (!resourcesChanged && element.RequestedTheme == requestedTheme)
         {
             return;
         }
 
-        if (resourcesChanged && RootGrid.RequestedTheme == requestedTheme)
+        if (resourcesChanged && element.RequestedTheme == requestedTheme)
         {
-            RootGrid.RequestedTheme = requestedTheme == ElementTheme.Dark
+            element.RequestedTheme = requestedTheme == ElementTheme.Dark
                 ? ElementTheme.Light
                 : ElementTheme.Dark;
         }
 
-        RootGrid.RequestedTheme = requestedTheme;
+        element.RequestedTheme = requestedTheme;
     }
 
     private void OnSystemColorValuesChanged(UISettings sender, object args)
@@ -531,8 +545,12 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        var originalTheme = ViewModel.CurrentTheme;
+        var originalThemeColor = ViewModel.CurrentThemeColor;
+
         var dialog = new PreferencesDialog(
-            ViewModel.CurrentTheme,
+            originalTheme,
+            originalThemeColor,
             ViewModel.SyncScrollingEnabled,
             ViewModel.WordWrapEnabled,
             ViewModel.EditorFontSize,
@@ -561,7 +579,16 @@ public sealed partial class MainWindow : Window
             }
         }
 
+        async void OnThemeSelectionChanged(object? sender, EventArgs e)
+        {
+            await ViewModel.PreviewThemeAsync(
+                dialog.SelectedDisplayMode,
+                dialog.SelectedThemeColor);
+        }
+
         dialog.OpenDefaultAppsRequested += OnOpenDefaultAppsRequested;
+        dialog.ThemeSelectionChanged += OnThemeSelectionChanged;
+        _activeDialog = dialog;
 
         ContentDialogResult result;
         try
@@ -570,16 +597,20 @@ public sealed partial class MainWindow : Window
         }
         finally
         {
+            _activeDialog = null;
+            dialog.ThemeSelectionChanged -= OnThemeSelectionChanged;
             dialog.OpenDefaultAppsRequested -= OnOpenDefaultAppsRequested;
         }
 
         if (result != ContentDialogResult.Primary)
         {
+            await ViewModel.PreviewThemeAsync(originalTheme, originalThemeColor);
             return;
         }
 
         await ViewModel.ApplyPreferencesAsync(
-            dialog.SelectedTheme,
+            dialog.SelectedDisplayMode,
+            dialog.SelectedThemeColor,
             dialog.SyncScrollingEnabled,
             dialog.WordWrapEnabled,
             dialog.SelectedFontFamily,

@@ -12,6 +12,7 @@ public sealed class SettingsAndRecentFilesTests
         var settings = new AppSettings();
 
         Assert.Equal("System", settings.Theme);
+        Assert.Equal("Sepia", settings.ThemeColor);
         Assert.Equal(1120, settings.WindowWidth);
         Assert.Equal(720, settings.WindowHeight);
         Assert.Equal("Normal", settings.WindowState);
@@ -97,36 +98,77 @@ public sealed class SettingsAndRecentFilesTests
     [InlineData("Sepia")]
     [InlineData("Morning")]
     [InlineData("Lavender")]
-    [InlineData("Nord")]
     [InlineData("Forest")]
-    [InlineData("HighContrast")]
-    public async Task Settings_NewThemes_RoundTrip(string theme)
+    [InlineData("Nord")]
+    [InlineData("Rose")]
+    public async Task Settings_ThemeColors_RoundTrip(string themeColor)
     {
         using var temp = new TempDirectory();
         var first = new SettingsService(temp.DirectoryPath);
         await first.LoadAsync();
-        first.Settings.Theme = theme;
+        first.Settings.Theme = "Dark";
+        first.Settings.ThemeColor = themeColor;
         await first.SaveAsync();
 
         var second = new SettingsService(temp.DirectoryPath);
         await second.LoadAsync();
 
-        Assert.Equal(theme, second.Settings.Theme);
+        Assert.Equal("Dark", second.Settings.Theme);
+        Assert.Equal(themeColor, second.Settings.ThemeColor);
+    }
+
+    [Theory]
+    [InlineData("Sepia", "Light", "Sepia")]
+    [InlineData("Morning", "Light", "Morning")]
+    [InlineData("Lavender", "Light", "Lavender")]
+    [InlineData("Nord", "Dark", "Nord")]
+    [InlineData("Forest", "Dark", "Forest")]
+    [InlineData("HighContrast", "Dark", "Sepia")]
+    public async Task Settings_LegacySingleTheme_MigratesToDisplayModeAndThemeColor(
+        string legacyTheme,
+        string expectedDisplayMode,
+        string expectedThemeColor)
+    {
+        using var temp = new TempDirectory();
+        var settingsPath = Path.Combine(temp.DirectoryPath, "settings.json");
+        await File.WriteAllTextAsync(settingsPath, $$"""{"Theme":"{{legacyTheme}}"}""");
+
+        var settings = new SettingsService(temp.DirectoryPath);
+        await settings.LoadAsync();
+
+        Assert.Equal(expectedDisplayMode, settings.Settings.Theme);
+        Assert.Equal(expectedThemeColor, settings.Settings.ThemeColor);
     }
 
     [Fact]
-    public async Task Settings_InvalidTheme_FallsBackToSystem()
+    public async Task Settings_InvalidThemeAndThemeColor_FallBackToDefaults()
     {
         using var temp = new TempDirectory();
         var first = new SettingsService(temp.DirectoryPath);
         await first.LoadAsync();
         first.Settings.Theme = "Unknown";
+        first.Settings.ThemeColor = "InvalidColor";
         await first.SaveAsync();
 
         var second = new SettingsService(temp.DirectoryPath);
         await second.LoadAsync();
 
         Assert.Equal("System", second.Settings.Theme);
+        Assert.Equal("Sepia", second.Settings.ThemeColor);
+    }
+
+    [Fact]
+    public async Task Settings_LegacyDefaultThemeColor_MigratesToSepia()
+    {
+        using var temp = new TempDirectory();
+        var settingsPath = Path.Combine(temp.DirectoryPath, "settings.json");
+        await File.WriteAllTextAsync(settingsPath, """{"Theme":"Light","ThemeColor":"Default"}""");
+
+        var settings = new SettingsService(temp.DirectoryPath);
+        await settings.LoadAsync();
+
+        Assert.Equal("Light", settings.Settings.Theme);
+        Assert.Equal("Sepia", settings.Settings.ThemeColor);
     }
 
     [Fact]

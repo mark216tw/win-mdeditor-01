@@ -9,74 +9,97 @@
     DefaultButton="Primary"
     PrimaryButtonText="儲存"
     mc:Ignorable="d">
-    <StackPanel MinWidth="380" Spacing="20">
-        <ComboBox
-            x:Name="ThemeComboBox"
-            Header="主題"
-            HorizontalAlignment="Stretch" />
+    <ScrollViewer
+        Padding="0,0,16,0"
+        HorizontalScrollBarVisibility="Disabled"
+        VerticalScrollBarVisibility="Auto">
+        <StackPanel MinWidth="380" Spacing="20">
+            <ComboBox
+                x:Name="DisplayModeComboBox"
+                AutomationProperties.Name="顯示模式"
+                Header="顯示模式"
+                HorizontalAlignment="Stretch"
+                SelectionChanged="ThemeComboBox_SelectionChanged" />
 
-        <ComboBox
-            x:Name="FontFamilyComboBox"
-            AutomationProperties.Name="編輯器字型"
-            Header="編輯器字型"
-            HorizontalAlignment="Stretch"
-            IsEditable="False" />
+            <ComboBox
+                x:Name="ThemeColorComboBox"
+                AutomationProperties.Name="主題顏色"
+                Header="主題顏色"
+                HorizontalAlignment="Stretch"
+                SelectionChanged="ThemeComboBox_SelectionChanged" />
 
-        <ToggleSwitch
-            x:Name="SyncScrollingToggle"
-            Header="同步捲動"
-            OffContent="停用"
-            OnContent="啟用" />
+            <ComboBox
+                x:Name="FontFamilyComboBox"
+                AutomationProperties.Name="編輯器字型"
+                Header="編輯器字型"
+                HorizontalAlignment="Stretch"
+                IsEditable="False" />
 
-        <TextBlock
-            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-            Text="啟用後，在並排檢視中捲動編輯器時，預覽視窗會依區塊行號自動對齊捲動位置。"
-            TextWrapping="Wrap" />
+            <StackPanel Spacing="6">
+                <ToggleSwitch
+                    x:Name="SyncScrollingToggle"
+                    Header="同步捲動"
+                    OffContent="停用"
+                    OnContent="啟用" />
 
-        <ToggleSwitch
-            x:Name="WordWrapToggle"
-            Header="自動換行"
-            OffContent="停用"
-            OnContent="啟用" />
+                <TextBlock
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    Text="啟用後，在並排檢視中捲動編輯器時，預覽視窗會依區塊行號自動對齊捲動位置。"
+                    TextWrapping="Wrap" />
+            </StackPanel>
 
-        <ComboBox
-            x:Name="FontSizeComboBox"
-            Header="字型大小"
-            HorizontalAlignment="Stretch" />
+            <StackPanel Spacing="6">
+                <ToggleSwitch
+                    x:Name="WordWrapToggle"
+                    Header="自動換行"
+                    OffContent="停用"
+                    OnContent="啟用" />
 
-        <Border
-            Height="1"
-            Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+                <TextBlock
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    Text="啟用後，過長的文字會依編輯器寬度自動折行顯示，不需水平捲動；停用時則維持單行並提供水平捲動。"
+                    TextWrapping="Wrap" />
+            </StackPanel>
 
-        <StackPanel Spacing="8">
-            <TextBlock
-                Style="{ThemeResource SubtitleTextBlockStyle}"
-                Text="檔案關聯" />
+            <ComboBox
+                x:Name="FontSizeComboBox"
+                Header="字型大小"
+                HorizontalAlignment="Stretch" />
 
-            <ToggleSwitch
-                x:Name="FileAssociationToggle"
-                AutomationProperties.Name="登錄為 Markdown 檔案的開啟方式"
-                Header="登錄為 Markdown 檔案（.md、.markdown、.mdown、.mkd）的開啟方式"
-                OffContent="未登錄"
-                OnContent="已登錄" />
+            <Border
+                Height="1"
+                Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
 
-            <TextBlock
-                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                Text="登錄後，Markdown 編輯器會出現在「開啟方式」與 Windows「預設應用程式」清單中。Windows 不允許程式自行設定預設，請在開啟的設定頁面選擇一次。"
-                TextWrapping="Wrap" />
+            <StackPanel Spacing="8">
+                <TextBlock
+                    Style="{ThemeResource SubtitleTextBlockStyle}"
+                    Text="檔案關聯" />
 
-            <Button
-                x:Name="OpenDefaultAppsButton"
-                AutomationProperties.Name="登錄並開啟 Windows 預設應用程式設定"
-                Click="OpenDefaultAppsButton_Click"
-                Content="登錄並開啟預設應用程式設定"
-                ToolTipService.ToolTip="登錄檔案關聯並開啟 Windows 預設應用程式設定" />
+                <ToggleSwitch
+                    x:Name="FileAssociationToggle"
+                    AutomationProperties.Name="登錄為 Markdown 檔案的開啟方式"
+                    Header="登錄為 Markdown 檔案（.md、.markdown、.mdown、.mkd）的開啟方式"
+                    OffContent="未登錄"
+                    OnContent="已登錄" />
 
-            <InfoBar
-                x:Name="AssociationInfoBar"
-                IsClosable="True"
-                IsOpen="False"
-                Severity="Error" />
+                <TextBlock
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    Text="登錄後，Markdown 編輯器會出現在「開啟方式」與 Windows「預設應用程式」清單中。Windows 不允許程式自行設定預設，請在開啟的設定頁面選擇一次。"
+                    TextWrapping="Wrap" />
+
+                <Button
+                    x:Name="OpenDefaultAppsButton"
+                    AutomationProperties.Name="登錄並開啟 Windows 預設應用程式設定"
+                    Click="OpenDefaultAppsButton_Click"
+                    Content="登錄並開啟預設應用程式設定"
+                    ToolTipService.ToolTip="登錄檔案關聯並開啟 Windows 預設應用程式設定" />
+
+                <InfoBar
+                    x:Name="AssociationInfoBar"
+                    IsClosable="True"
+                    IsOpen="False"
+                    Severity="Error" />
+            </StackPanel>
         </StackPanel>
-    </StackPanel>
+    </ScrollViewer>
 </ContentDialog>

@@ -49,6 +49,30 @@ public sealed class HtmlExportServiceTests
         Assert.DoesNotContain(".hljs{color:#fff}", html);
     }
 
+    [Theory]
+    [InlineData("sepia-light", false)]
+    [InlineData("sepia-dark", true)]
+    [InlineData("forest-light", false)]
+    [InlineData("forest-dark", true)]
+    [InlineData("nord-light", false)]
+    [InlineData("nord-dark", true)]
+    [InlineData("rose-light", false)]
+    [InlineData("rose-dark", true)]
+    public async Task Export_SupportsLightAndDarkThemeColorVariants(string webTheme, bool expectDarkHighlight)
+    {
+        using var temp = new TempDirectory();
+        var assets = await CreateAssetsAsync(temp);
+        var output = temp.Combine($"{webTheme}.html");
+
+        var service = new HtmlExportService(assets);
+        await service.ExportAsync("<p>Hello</p>", "Theme", webTheme, temp.DirectoryPath, output);
+
+        var html = await File.ReadAllTextAsync(output);
+
+        Assert.Contains($"data-theme=\"{webTheme}\"", html);
+        Assert.Contains(expectDarkHighlight ? ".hljs{color:#fff}" : ".hljs{color:#000}", html);
+    }
+
     [Fact]
     public async Task Export_EmbedsLocalImagesAndKeepsRemoteImages()
     {

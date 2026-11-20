@@ -4,6 +4,46 @@
 
 ---
 
+## 2026-11-20 - v1.1.6
+
+### 目標
+修正偏好設定頁面垂直卷軸與內容重疊的問題，並移除主題顏色中的「預設」選項，將預設配色改為「護眼黃」。
+
+### 變更
+- `src/MdEditor/Views/PreferencesDialog.xaml`：外層 `ScrollViewer` 右側留白由 4 DIP 調整為 16 DIP，並停用水平卷軸，避免垂直卷軸覆蓋 ComboBox 與說明文字。
+- `src/MdEditor/Models/AppThemeCatalog.cs`：`ThemeColors` 移除「預設」；中性淺色／深色定義的 `ColorId` 改為 `Neutral`；`Resolve` 的空值與無效值 fallback 改為護眼黃深淺色。
+- `src/MdEditor.Core/Models/AppSettings.cs`、`src/MdEditor.Core/Services/SettingsService.cs`：`ThemeColor` 預設改為 `Sepia`，舊版 `Default` 與無效顏色載入時遷移為 `Sepia`；移除舊主題遷移的 `hasCustomColor` 判斷，避免新預設值阻擋 `Morning`／`Nord` 等舊主題轉換。
+- `src/MdEditor/ViewModels/MainViewModel.cs`、`src/MdEditor/Views/PreferencesDialog.xaml.cs`：主題顏色預設值與 fallback 同步改為 `Sepia`。
+- `tests/MdEditor.Tests/SettingsAndRecentFilesTests.cs`：更新預設值、遷移與 fallback 預期，新增舊 `Default` 遷移測試。
+- `Directory.Build.props`、`CHANGELOG.md`、`RELEASE_NOTES.md`、`README.md`、`docs/使用指南.md`、`docs/技術文件.md`、`docs/系統架構.md`：版號遞增為 1.1.6，同步更新顯示模式／主題顏色說明、設定格式與下載檔名。
+
+### 問題與解法
+- WinUI 3 的 `ScrollContentPresenter` 會橫跨捲軸欄位，捲軸展開時寬度約 12～14 DIP，原本右側 4 DIP 留白不足 → 加大至 16 DIP，使內容完全避開捲軸。
+- `AppSettings.ThemeColor` 預設改為 `Sepia` 後，舊版僅含 `Theme` 的設定檔會被誤判為已自訂顏色 → 移除 `hasCustomColor` 判斷，讓舊主題名稱一律覆寫 `ThemeColor`。
+
+### 待辦／已知限制
+- 尚未在不同螢幕縮放比例與 Windows 10 1809 實機確認偏好設定捲軸間距。
+
+## 2026-11-20 - v1.1.5
+
+### 目標
+在偏好設定的「自動換行」選項下增加說明；將原本單一「主題」選項拆分為「顯示模式」（跟隨系統、淺色、深色）與「主題顏色」（預設、護眼黃、晨光、薰衣草、森林綠、北歐藍、玫瑰粉），各主題顏色皆依顯示模式深淺提供對應配色；並在偏好設定中選擇後立即套用預覽、按取消時還原為原本顏色。
+
+### 變更
+- `src/MdEditor.Core/Models/AppSettings.cs`、`src/MdEditor.Core/Services/SettingsService.cs`：新增 `ThemeColor`（預設 `"Default"`），`Theme` 作為顯示模式（`System`／`Light`／`Dark`），並在載入時自動將舊版單一主題（如 `Sepia`、`Morning`、`Lavender`、`Nord`、`Forest`、`HighContrast`）遷移為對應的顯示模式與主題顏色。
+- `src/MdEditor/Models/AppThemeCatalog.cs`、`src/MdEditor/Styles/Themes/*Light.xaml`、`*Dark.xaml`：定義 3 種顯示模式與 7 種主題顏色（預設、護眼黃、晨光、薰衣草、森林綠、北歐藍、玫瑰粉），建立 12 個自訂深淺色 WinUI 3 資源字典（連同預設淺色／深色共 14 組外觀定義）。
+- `src/MdEditor/Assets/Editor/editor.css`、`src/MdEditor/Assets/Preview/preview.css`、`web/editor/src/editor.js`、`web/preview/src/preview.js`、`src/MdEditor.Core/Services/HtmlExportService.cs`：補齊 14 組深淺主題 CSS 變數與語法高亮深淺對照。
+- `src/MdEditor/Views/PreferencesDialog.xaml`、`PreferencesDialog.xaml.cs`：將「主題」改為「顯示模式」與「主題顏色」兩個下拉選單並於切換時觸發 `ThemeSelectionChanged`；在「自動換行」下方新增說明文字；外層加入 `ScrollViewer`。
+- `src/MdEditor/ViewModels/MainViewModel.cs`、`src/MdEditor/MainWindow.xaml.cs`：新增 `PreviewThemeAsync` 於偏好設定選取時即時更新主視窗、開啟中的 `PreferencesDialog`、編輯器與預覽區主題；若使用者按下取消則呼叫 `PreviewThemeAsync(originalTheme, originalThemeColor)` 還原。
+- `tests/MdEditor.Tests/SettingsAndRecentFilesTests.cs`、`tests/MdEditor.Tests/HtmlExportServiceTests.cs`：新增主題顏色存取、舊版主題設定自動遷移與深淺主題 HTML 匯出測試。
+- `Directory.Build.props`、`CHANGELOG.md`、`RELEASE_NOTES.md`：版號遞增為 1.1.5 並同步紀錄。
+
+### 問題與解法
+- `ContentDialog` 位於 Popup 視覺樹而非 `RootGrid` 子樹，僅更新 `RootGrid.RequestedTheme` 時開啟中的偏好設定對話框不會即時變色 → 在 `MainWindow` 追蹤開啟中的 `_activeDialog`，於 `OnThemeChanged` 同步對 `RootGrid` 與 `_activeDialog` 套用 `ElementTheme`（含同明暗度下切換資源字典時的翻轉重繪）。
+
+### 待辦／已知限制
+- 尚未在 Windows 10 1809 與 ARM64 實機實測 14 組深淺色主題切換。
+
 ## 2026-11-20 - v1.1.4
 
 ### 目標
