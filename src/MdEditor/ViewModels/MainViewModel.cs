@@ -95,6 +95,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
         ViewMode = EditorViewMode.Split;
         ExternalChangeMessage = string.Empty;
+        ExternalChangeActionText = "重新載入";
         ErrorMessage = string.Empty;
         BusyText = string.Empty;
         StatusText = "就緒";
@@ -103,7 +104,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         EncodingText = "UTF-8";
         LineEndingText = "LF";
         SaveStateText = "已儲存";
-        WindowTitle = "Markdown 編輯器";
+        WindowTitle = "MiniMdEditor";
         FilePathText = "尚未開啟檔案";
     }
 
@@ -125,6 +126,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     [ObservableProperty]
     public partial string ExternalChangeMessage { get; set; }
+
+    [ObservableProperty]
+    public partial string ExternalChangeActionText { get; set; }
 
     [ObservableProperty]
     public partial bool IsErrorVisible { get; set; }
@@ -1049,7 +1053,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         var document = ActiveDocument;
         var path = document?.FilePath;
-        if (document is null || path is null)
+        if (document is null || path is null || document.IsMissing)
         {
             return;
         }
@@ -1192,6 +1196,18 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         {
             await CloseDocumentAsync(document);
         }
+    }
+
+    [RelayCommand]
+    private async Task ExternalChangeActionAsync()
+    {
+        if (ActiveDocument?.IsMissing == true)
+        {
+            await CloseActiveDocumentAsync();
+            return;
+        }
+
+        await ReloadAsync();
     }
 
     private async Task<bool> SaveDocumentAsync(bool saveAs, bool skipExternalCheck = false)
@@ -1666,7 +1682,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         }
 
         if (propertyName is nameof(DocumentViewModel.IsExternalChange) or
-            nameof(DocumentViewModel.ExternalChangeMessage))
+            nameof(DocumentViewModel.ExternalChangeMessage) or
+            nameof(DocumentViewModel.IsMissing))
         {
             UpdateBanner();
         }
@@ -2071,7 +2088,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             EncodingText = "UTF-8";
             LineEndingText = "LF";
             SaveStateText = "已儲存";
-            WindowTitle = "Markdown 編輯器";
+            WindowTitle = "MiniMdEditor";
             FilePathText = "尚未開啟檔案";
             OnPropertyChanged(nameof(HasActiveFilePath));
             return;
@@ -2082,7 +2099,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             : document.EncodingName;
         LineEndingText = document.LineEnding;
         SaveStateText = document.IsDirty ? "未儲存" : "已儲存";
-        WindowTitle = $"{document.Title}{(document.IsDirty ? " *" : string.Empty)} - Markdown 編輯器";
+        WindowTitle = $"{document.Title}{(document.IsDirty ? " *" : string.Empty)} - MiniMdEditor";
         FilePathText = document.FilePath ?? "尚未儲存";
         OnPropertyChanged(nameof(HasActiveFilePath));
         ScheduleWordCountUpdate(document);
@@ -2139,6 +2156,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         var document = ActiveDocument;
         IsExternalChangeVisible = document?.IsExternalChange == true;
         ExternalChangeMessage = document?.ExternalChangeMessage ?? string.Empty;
+        ExternalChangeActionText = document?.IsMissing == true ? "關閉文件" : "重新載入";
     }
 
     private void SetBusy(bool busy, string text)

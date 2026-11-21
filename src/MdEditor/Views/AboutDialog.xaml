@@ -15,7 +15,7 @@
                 Height="64"
                 Source="ms-appx:///Assets/AppIcon.png" />
             <StackPanel VerticalAlignment="Center" Spacing="2">
-                <TextBlock FontSize="20" FontWeight="SemiBold" Text="Markdown 編輯器" />
+                <TextBlock FontSize="20" FontWeight="SemiBold" Text="MiniMdEditor" />
                 <TextBlock
                     x:Name="VersionText"
                     Foreground="{ThemeResource TextFillColorSecondaryBrush}" />

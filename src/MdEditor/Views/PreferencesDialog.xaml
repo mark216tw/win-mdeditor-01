@@ -84,7 +84,7 @@
 
                 <TextBlock
                     Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                    Text="登錄後，Markdown 編輯器會出現在「開啟方式」與 Windows「預設應用程式」清單中。Windows 不允許程式自行設定預設，請在開啟的設定頁面選擇一次。"
+                    Text="登錄後，MiniMdEditor 會出現在「開啟方式」與 Windows「預設應用程式」清單中。Windows 不允許程式自行設定預設，請在開啟的設定頁面選擇一次。"
                     TextWrapping="Wrap" />
 
                 <Button

@@ -8,7 +8,7 @@ public static class FileAssociationRegistration
     public const string RegisteredAppName = "MdEditor";
     public const string ExecutableName = "MdEditor.exe";
     public const string DisplayName = "Markdown 文件";
-    public const string ApplicationName = "Markdown 編輯器";
+    public const string ApplicationName = "MiniMdEditor";
     public const string ApplicationDescription = "Markdown 文件編輯器";
     public const string CompanyName = "VibeCode";
     public const string ContentType = "text/markdown";

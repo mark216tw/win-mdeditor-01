@@ -56,6 +56,12 @@ public sealed partial class MainWindow : Window
 
         InitializeComponent();
 
+        var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico");
+        if (File.Exists(iconPath))
+        {
+            AppWindow.SetIcon(iconPath);
+        }
+
         Title = ViewModel.WindowTitle;
         ViewModel.PropertyChanged += OnViewModelPropertyChanged;
         ViewModel.ThemeChanged += OnThemeChanged;

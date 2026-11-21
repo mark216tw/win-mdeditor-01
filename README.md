@@ -1,4 +1,4 @@
-# Markdown 編輯器（MdEditor）
+# MiniMdEditor
 
 [![GitHub Release](https://img.shields.io/github/v/release/mark216tw/win-mdeditor-01)](https://github.com/mark216tw/win-mdeditor-01/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -27,7 +27,7 @@ Windows 10／11 的 Markdown 桌面編輯器。介面使用 WinUI 3，編輯器�
 - 關閉視窗不會詢問是否儲存；未儲存內容仍保留於工作階段暫存。
 - 編輯後復原（Undo）回上次儲存的內容時，頁籤上的未儲存標記會自動消失。
 - 最近開啟檔案清單（MRU），可從子選單釘選／移除目前檔案與清除清單。
-- 外部檔案變更偵測：開啟期間顯示提示並可重新載入；啟動時若草稿與磁碟版本衝突，提供保留草稿／載入磁碟版本／並排比較；儲存前再次偵測外部變更並提示覆蓋或另存。
+- 外部檔案變更偵測：開啟期間顯示提示並可重新載入；檔案被刪除或移動時改為提供關閉文件；啟動時若草稿與磁碟版本衝突，提供保留草稿／載入磁碟版本／並排比較；儲存前再次偵測外部變更並提示覆蓋或另存。
 - 匯出 PDF（A4）、Word（.docx）與單一 HTML（跟隨匯出當下的 App 主題）。
 - 預覽支援 KaTeX 數學公式（`$...$`、`$$...$$`）與 Mermaid 流程圖／時序圖／類別圖等圖表，完全離線渲染。
 - 顯示模式（跟隨系統、淺色、深色）與主題顏色（護眼黃、晨光、薰衣草、森林綠、北歐藍、玫瑰粉）可獨立搭配，預設為護眼黃；「跟隨系統」會在執行期跟隨系統變化。

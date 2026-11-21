@@ -4,6 +4,57 @@
 
 ---
 
+## 2026-11-21 - v1.1.9
+
+### 目標
+將應用程式顯示名稱由「Markdown 編輯器」改為「MiniMdEditor」，僅調整使用者可見名稱，不改動專案、命名空間、執行檔與登錄識別碼。
+
+### 變更
+- `Directory.Build.props`：`Product` 與 `AssemblyTitle` 改為 `MiniMdEditor`；版本提升至 1.1.9。
+- `src/MdEditor/MainWindow.xaml`、`src/MdEditor/ViewModels/MainViewModel.cs`：視窗標題改為 MiniMdEditor（含未開啟檔案與文件標題格式）。
+- `src/MdEditor/Views/AboutDialog.xaml`、`src/MdEditor/Views/PreferencesDialog.xaml`：關於與偏好設定中的應用程式名稱更新。
+- `src/MdEditor.Core/Helpers/FileAssociationRegistration.cs`：`ApplicationName` 改為 MiniMdEditor，Windows「開啟方式」與預設應用程式清單顯示新名稱。
+- `CHANGELOG.md`、`RELEASE_NOTES.md`：新增 1.1.9 紀錄。
+- `README.md`、`scripts/publish-release.ps1`、`docs/Markdown範例.md`：標題與說明文字同步改為 MiniMdEditor；新增 Markdown 功能展示範例文件。
+
+### 待辦／已知限制
+- 專案名稱、命名空間、`MdEditor.exe`、ProgId 與登錄機碼維持原樣，避免破壞既有檔案關聯與使用者資料。
+- 尚未實測 Windows 10 1809 與 ARM64 實機。
+
+## 2026-11-21 - v1.1.8
+
+### 目標
+優化應用程式圖示（`AppIcon.png` 與 `AppIcon.ico`）設計，提升 Windows 11 桌面、工作列、標題列與「關於」對話框的視覺質感與小尺寸辨識度。
+
+### 變更
+- `src/MdEditor/Assets/AppIcon.png`、`src/MdEditor/Assets/AppIcon.ico`：保留原本深藍圓角方塊（`#0B1220`）與銀灰外框及原版 `M` 字形，修正原本整體偏左與箭頭高度超出 `M` 的問題，將 `M` 與向下箭頭統一為高度 96px 上下齊平對齊（`y=80..175`）並水平垂直置中（`x=38..218`），重新產出 256×256 PNG 與 16／24／32／48／64／128／256 七尺寸 32bpp ICO。
+- `src/MdEditor/MainWindow.xaml.cs`：視窗初始化時透過 `AppWindow.SetIcon` 套用 `Assets\AppIcon.ico`，確保未封裝模式標題列與工作列一致呈現。
+- `Directory.Build.props`、`CHANGELOG.md`、`RELEASE_NOTES.md`：版號遞增為 1.1.8 並同步紀錄。
+
+### 問題與解法
+- 原版圖示 `M` 位於 `x=[31,139], y=[71,166]`、箭頭位於 `x=[155,209], y=[68,198]`，左右留白不均（左 31px、右 46px）且箭頭比 `M` 高出 35px → 保留原外框與 `M` 字形，將箭頭以 4 倍超採樣重繪為與 `M` 等高（96px）並整體置中於 256×256 畫布。
+
+### 待辦／已知限制
+- 尚未實測 Windows 10 1809 與 ARM64 實機。
+
+## 2026-11-21 - v1.1.7
+
+### 目標
+檔案在外部被刪除或移動時，不再提供會失敗的「重新載入」，改為提供「關閉文件」。
+
+### 變更
+- `src/MdEditor/ViewModels/MainViewModel.cs`：新增 `ExternalChangeActionText` 與 `ExternalChangeActionCommand`；提示列依 `IsMissing` 顯示「關閉文件」或「重新載入」，`IsMissing` 變更時同步更新提示列；`ReloadAsync` 增加遺失檔案防護。
+- `src/MdEditor/MainWindow.xaml`：外部變更提示列按鈕改用動態文字與命令，`AutomationProperties.Name` 同步反映目前動作。
+- `Directory.Build.props`、`CHANGELOG.md`、`RELEASE_NOTES.md`、`README.md`、`docs/使用指南.md`、`docs/系統架構.md`、`docs/系統設計.md`：更新版本與外部變更流程說明。
+
+### 問題與解法
+- `InfoBar.ActionButton` 只接受單一按鈕，無法同時放兩個動作 → 改以同一個按鈕依 `IsMissing` 切換文字與命令。
+- `MarkMissing` 可能只變更 `IsMissing` 而未觸發既有提示列更新 → 將 `IsMissing` 納入 `OnDocumentPropertyChanged` 的提示列更新條件。
+
+### 待辦／已知限制
+- 檔案遺失且關閉時，若選擇儲存仍會依既有設計重建原路徑檔案。
+- 尚未實測 Windows 10 1809 與 ARM64 實機。
+
 ## 2026-11-20 - v1.1.6
 
 ### 目標

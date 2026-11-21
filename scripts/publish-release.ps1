@@ -86,7 +86,7 @@ foreach ($target in $targets) {
     }
 
     $readme = @"
-Markdown 編輯器 v$Version（$($target.Rid)，非 Self-Contained）
+MiniMdEditor v$Version（$($target.Rid)，非 Self-Contained）
 
 執行前請先安裝下列執行環境（需與 App 相同架構）：
 1. .NET 10 Runtime（Microsoft.NETCore.App 10.0）

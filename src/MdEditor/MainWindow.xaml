@@ -8,7 +8,7 @@
     xmlns:models="using:VibeCode.MdEditor.Models"
     xmlns:views="using:VibeCode.MdEditor.Views"
     mc:Ignorable="d"
-    Title="Markdown 編輯器">
+    Title="MiniMdEditor">
     <Grid
         x:Name="RootGrid"
         AllowDrop="True"
@@ -594,9 +594,10 @@
             Title="檔案已在外部變更">
             <InfoBar.ActionButton>
                 <Button
-                    AutomationProperties.Name="ReloadButton"
-                    Command="{x:Bind ViewModel.ReloadCommand}"
-                    Content="重新載入" />
+                    x:Name="ExternalChangeActionButton"
+                    AutomationProperties.Name="{x:Bind ViewModel.ExternalChangeActionText, Mode=OneWay}"
+                    Command="{x:Bind ViewModel.ExternalChangeActionCommand}"
+                    Content="{x:Bind ViewModel.ExternalChangeActionText, Mode=OneWay}" />
             </InfoBar.ActionButton>
         </InfoBar>
 
