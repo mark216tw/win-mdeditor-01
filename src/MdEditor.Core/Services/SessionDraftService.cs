@@ -172,6 +172,10 @@ public sealed class SessionDraftService : ISessionDraftService
                     LastWriteTimeUtc = document.LastWriteTimeUtc,
                     Revision = document.Revision,
                     PersistText = document.PersistText,
+                    ScrollLine = document.ScrollLine,
+                    ScrollPercent = document.ScrollPercent,
+                    PreviewScrollLine = document.PreviewScrollLine,
+                    PreviewScrollPercent = document.PreviewScrollPercent,
                 });
             }
 
@@ -257,7 +261,11 @@ public sealed class SessionDraftService : ISessionDraftService
                 entry.LastKnownHash,
                 entry.LastWriteTimeUtc,
                 entry.Revision,
-                PersistText: false);
+                PersistText: false,
+                entry.ScrollLine,
+                entry.ScrollPercent,
+                entry.PreviewScrollLine,
+                entry.PreviewScrollPercent);
         }
 
         try
@@ -284,7 +292,11 @@ public sealed class SessionDraftService : ISessionDraftService
                 entry.LastKnownHash,
                 entry.LastWriteTimeUtc,
                 entry.Revision,
-                entry.PersistText);
+                entry.PersistText,
+                entry.ScrollLine,
+                entry.ScrollPercent,
+                entry.PreviewScrollLine,
+                entry.PreviewScrollPercent);
         }
         catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
         {

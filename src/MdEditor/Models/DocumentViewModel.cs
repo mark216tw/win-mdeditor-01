@@ -83,6 +83,14 @@ public sealed partial class DocumentViewModel : ObservableObject
 
     public long Revision { get; set; } = 1;
 
+    public double ScrollLine { get; set; }
+
+    public double ScrollPercent { get; set; }
+
+    public double PreviewScrollLine { get; set; }
+
+    public double PreviewScrollPercent { get; set; }
+
     public string FileDirectory => FilePath is null
         ? string.Empty
         : Path.GetDirectoryName(FilePath) ?? string.Empty;

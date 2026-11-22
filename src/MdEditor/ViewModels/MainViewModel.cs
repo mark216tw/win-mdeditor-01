@@ -31,6 +31,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private readonly ILineDiffService _lineDiff;
     private readonly IDialogService _dialogs;
     private readonly IUiDispatcher _dispatcher;
+    private readonly IDocumentTranslationService _documentTranslation;
     private readonly ILogger<MainViewModel> _logger;
     private readonly Dictionary<string, DateTimeOffset> _watcherSuppression = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _pendingRestorePaths = new(StringComparer.OrdinalIgnoreCase);
@@ -47,6 +48,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private CancellationTokenSource? _draftSaveCancellation;
     private CancellationTokenSource? _statsCancellation;
     private CancellationTokenSource? _fontSizeSaveCancellation;
+    private CancellationTokenSource? _translationCancellation;
     private Task? _sessionRestoreTask;
     private TaskCompletionSource? _sessionRestoreCompletion;
     private long _previewRenderGeneration;
@@ -77,6 +79,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         ILineDiffService lineDiff,
         IDialogService dialogs,
         IUiDispatcher dispatcher,
+        IDocumentTranslationService documentTranslation,
         ILogger<MainViewModel> logger)
     {
         _fileService = fileService;
@@ -90,6 +93,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         _lineDiff = lineDiff;
         _dialogs = dialogs;
         _dispatcher = dispatcher;
+        _documentTranslation = documentTranslation;
         _logger = logger;
         _fileWatcher.FileChanged += OnFileChanged;
 
@@ -143,6 +147,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     public partial string BusyText { get; set; }
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(TranslationCancelVisibility))]
+    public partial bool IsTranslating { get; set; }
+
+    public Visibility TranslationCancelVisibility => IsTranslating ? Visibility.Visible : Visibility.Collapsed;
+
+    [ObservableProperty]
     public partial string StatusText { get; set; }
 
     [ObservableProperty]
@@ -183,6 +193,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     public string CurrentThemeColor => _settings.Settings.ThemeColor;
 
+    public TranslationSettings TranslationSettings => _settings.Settings.Translation;
+
     public bool SyncScrollingEnabled => _settings.Settings.SyncScrolling;
 
     public bool WordWrapEnabled => _settings.Settings.WordWrap;
@@ -212,6 +224,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         preview.ShortcutRequested += OnShortcutRequested;
         preview.FontSizeChanged += OnPreviewFontSizeChanged;
         preview.TaskToggled += OnPreviewTaskToggled;
+        preview.ScrollChanged += OnPreviewScrollChanged;
 
         if (!_settings.IsLoaded)
         {
@@ -394,6 +407,19 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(WordWrapEnabled));
         OnPropertyChanged(nameof(EditorFontFamily));
         OnPropertyChanged(nameof(EditorFontSize));
+    }
+
+    public async Task ApplyTranslationSettingsAsync(
+        string endpoint,
+        string model,
+        string sourceLanguage,
+        string targetLanguage)
+    {
+        _settings.Settings.Translation.Endpoint = endpoint;
+        _settings.Settings.Translation.Model = model;
+        _settings.Settings.Translation.SourceLanguage = sourceLanguage;
+        _settings.Settings.Translation.TargetLanguage = targetLanguage;
+        await _settings.SaveAsync();
     }
 
     public async Task SetWordWrapAsync(bool enabled)
@@ -780,7 +806,16 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                     continue;
                 }
 
+                var alreadyOpen = Documents.FirstOrDefault(document =>
+                    document.FilePath is not null && PathsEqual(document.FilePath, snapshot.FilePath));
+
                 await OpenFileAsync(snapshot.FilePath);
+
+                if (alreadyOpen is null)
+                {
+                    await RestoreClosedScrollAsync(snapshot);
+                }
+
                 return;
             }
 
@@ -804,6 +839,10 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                 HasBom = snapshot.HasBom,
                 LineEnding = snapshot.LineEnding,
                 IsDirty = snapshot.IsDirty || snapshot.Text.Length > 0,
+                ScrollLine = snapshot.ScrollLine,
+                ScrollPercent = snapshot.ScrollPercent,
+                PreviewScrollLine = snapshot.PreviewScrollLine,
+                PreviewScrollPercent = snapshot.PreviewScrollPercent,
             };
             document.SetSavedText(snapshot.SavedText);
 
@@ -833,11 +872,59 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             document.CodePage,
             document.HasBom,
             document.LineEnding,
-            document.IsDirty));
+            document.IsDirty,
+            document.ScrollLine,
+            document.ScrollPercent,
+            document.PreviewScrollLine,
+            document.PreviewScrollPercent));
 
         if (_closedDocuments.Count > MaxClosedDocuments)
         {
             _closedDocuments.RemoveAt(0);
+        }
+    }
+
+    private async Task RestoreClosedScrollAsync(ClosedDocumentSnapshot snapshot)
+    {
+        var document = ActiveDocument;
+        if (document is null || _editor is null || !_editor.IsReady)
+        {
+            return;
+        }
+
+        document.ScrollLine = snapshot.ScrollLine;
+        document.ScrollPercent = snapshot.ScrollPercent;
+        document.PreviewScrollLine = snapshot.PreviewScrollLine;
+        document.PreviewScrollPercent = snapshot.PreviewScrollPercent;
+
+        if (snapshot.ScrollLine > 1 || snapshot.ScrollPercent > 0)
+        {
+            try
+            {
+                await _editor.RestoreScrollAsync(
+                    document.Id,
+                    snapshot.ScrollLine,
+                    snapshot.ScrollPercent);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "還原關閉分頁的捲動位置失敗。");
+            }
+        }
+
+        if (ViewMode != EditorViewMode.Edit && _preview is not null)
+        {
+            try
+            {
+                await _preview.SetScrollPercentAsync(
+                    snapshot.PreviewScrollPercent,
+                    snapshot.PreviewScrollLine,
+                    document.Id);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "還原關閉分頁的預覽位置失敗。");
+            }
         }
     }
 
@@ -1189,6 +1276,168 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     }
 
     [RelayCommand]
+    private async Task TranslateDocumentAsync()
+    {
+        if (IsTranslating || _isClosing || _editor is null)
+        {
+            return;
+        }
+
+        var document = ActiveDocument;
+        if (document is null)
+        {
+            return;
+        }
+
+        var settings = _settings.Settings.Translation;
+
+        try
+        {
+            if (!await _documentTranslation.IsConfiguredAsync(settings))
+            {
+                ShowError("無法翻譯", "請先在「偏好設定 → 翻譯」設定端點、模型與 API Key。");
+                PreferencesRequested?.Invoke(this, EventArgs.Empty);
+                return;
+            }
+        }
+        catch (Exception ex)
+        {
+            ShowError("無法翻譯", ex.Message);
+            return;
+        }
+
+        await FlushEditorAsync();
+
+        if (string.IsNullOrWhiteSpace(document.Text))
+        {
+            StatusText = "目前文件沒有可翻譯的內容";
+            return;
+        }
+
+        var cancellation = new CancellationTokenSource();
+        _translationCancellation?.Cancel();
+        _translationCancellation?.Dispose();
+        _translationCancellation = cancellation;
+
+        IsTranslating = true;
+        SetBusy(true, "正在準備翻譯...");
+
+        try
+        {
+            var progress = new Progress<TranslationProgress>(value =>
+            {
+                _dispatcher.TryEnqueue(() =>
+                {
+                    if (!ReferenceEquals(_translationCancellation, cancellation))
+                    {
+                        return;
+                    }
+
+                    BusyText = $"正在翻譯...（{value.CompletedSegments}/{value.TotalSegments} 段）";
+                });
+            });
+
+            var result = await _documentTranslation.TranslateMarkdownAsync(
+                document.Text,
+                settings,
+                progress,
+                cancellationToken: cancellation.Token);
+
+            if (result.UnitCount == 0)
+            {
+                StatusText = "文件中沒有可翻譯的文字";
+                return;
+            }
+
+            var title = BuildTranslatedTitle(document.Title, settings.TargetLanguage);
+            var translated = new DocumentViewModel(title)
+            {
+                Text = result.Text,
+            };
+            translated.RefreshDirtyState();
+
+            Documents.Add(translated);
+            await SelectDocumentAsync(translated);
+            StatusText = $"已建立譯文：{title}";
+        }
+        catch (OperationCanceledException)
+        {
+            StatusText = "已取消翻譯";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "整篇翻譯失敗。");
+            ShowError("翻譯失敗", ex.Message);
+        }
+        finally
+        {
+            if (ReferenceEquals(_translationCancellation, cancellation))
+            {
+                _translationCancellation = null;
+            }
+
+            cancellation.Dispose();
+            IsTranslating = false;
+            SetBusy(false, string.Empty);
+        }
+    }
+
+    [RelayCommand]
+    private void CancelTranslation()
+    {
+        _translationCancellation?.Cancel();
+    }
+
+    public async Task<string?> TestTranslationSettingsAsync(
+        string endpoint,
+        string model,
+        string sourceLanguage,
+        string targetLanguage,
+        string? apiKey)
+    {
+        var settings = new TranslationSettings
+        {
+            Endpoint = endpoint,
+            Model = model,
+            SourceLanguage = sourceLanguage,
+            TargetLanguage = targetLanguage,
+        };
+
+        try
+        {
+            if (!await _documentTranslation.IsConfiguredAsync(settings, apiKey))
+            {
+                return "請先設定端點、模型與 API Key。";
+            }
+
+            var result = await _documentTranslation.TranslateMarkdownAsync(
+                "Hello, world.",
+                settings,
+                apiKeyOverride: apiKey);
+
+            return result.UnitCount == 0 ? "翻譯服務沒有處理任何內容。" : null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "翻譯設定測試失敗。");
+            return ex.Message;
+        }
+    }
+
+    private static string BuildTranslatedTitle(string title, string targetLanguage)
+    {
+        var targetName = TranslationLanguageCatalog.GetDisplayName(targetLanguage);
+        var extension = Path.GetExtension(title);
+        var baseName = Path.GetFileNameWithoutExtension(title);
+        if (string.IsNullOrWhiteSpace(baseName))
+        {
+            baseName = title;
+        }
+
+        return $"{baseName}（{targetName}）{extension}";
+    }
+
+    [RelayCommand]
     private async Task CloseActiveDocumentAsync()
     {
         var document = ActiveDocument;
@@ -1428,7 +1677,11 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
         try
         {
-            await _editor.SetContentAsync(document.Text, document.Id);
+            await _editor.SetContentAsync(
+                document.Text,
+                document.Id,
+                document.ScrollLine,
+                document.ScrollPercent);
         }
         catch (Exception ex)
         {
@@ -1439,6 +1692,14 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             _isLoadingDocument = false;
             UpdateStatus();
             UpdateBanner();
+        }
+
+        if (ViewMode != EditorViewMode.Edit && _preview is not null)
+        {
+            await _preview.SetScrollPercentAsync(
+                document.PreviewScrollPercent,
+                document.PreviewScrollLine,
+                document.Id);
         }
     }
 
@@ -1565,7 +1826,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                 html,
                 _currentTheme,
                 Guid.NewGuid().ToString("N"),
-                document.Id);
+                document.Id,
+                document.PreviewScrollLine,
+                document.PreviewScrollPercent);
 
             if (ReferenceEquals(document, ActiveDocument) &&
                 ReferenceEquals(document.Text, text) &&
@@ -1765,8 +2028,20 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         var document = ActiveDocument;
         if (document is null ||
-            !string.Equals(document.Id, e.DocumentId, StringComparison.Ordinal) ||
-            ViewMode != EditorViewMode.Split ||
+            !string.Equals(document.Id, e.DocumentId, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        document.ScrollLine = e.Line;
+        document.ScrollPercent = e.Percent;
+
+        if (e.Restoring || _isLoadingDocument)
+        {
+            return;
+        }
+
+        if (ViewMode != EditorViewMode.Split ||
             !_settings.Settings.SyncScrolling ||
             _preview is null)
         {
@@ -1781,16 +2056,31 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
         _lastSyncedScrollPercent = e.Percent;
         _lastSyncedScrollLine = e.Line;
-        _ = SyncPreviewScrollAsync(e.Percent, e.Line);
+        document.PreviewScrollLine = e.Line;
+        document.PreviewScrollPercent = e.Percent;
+        _ = SyncPreviewScrollAsync(e.Percent, e.Line, document.Id);
     }
 
-    private async Task SyncPreviewScrollAsync(double percent, double line)
+    private void OnPreviewScrollChanged(object? sender, PreviewScrollEventArgs e)
+    {
+        var document = ActiveDocument;
+        if (document is null ||
+            !string.Equals(document.Id, e.DocumentId, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        document.PreviewScrollLine = e.Line;
+        document.PreviewScrollPercent = e.Percent;
+    }
+
+    private async Task SyncPreviewScrollAsync(double percent, double line, string documentId)
     {
         try
         {
             if (_preview is not null)
             {
-                await _preview.SetScrollPercentAsync(percent, line);
+                await _preview.SetScrollPercentAsync(percent, line, documentId);
             }
         }
         catch (Exception ex)
@@ -2448,6 +2738,10 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             LastWriteTimeUtc = snapshot.LastWriteTimeUtc,
             IsDirty = snapshot.IsDirty,
             Revision = snapshot.Revision,
+            ScrollLine = snapshot.ScrollLine,
+            ScrollPercent = snapshot.ScrollPercent,
+            PreviewScrollLine = snapshot.PreviewScrollLine,
+            PreviewScrollPercent = snapshot.PreviewScrollPercent,
         };
 
         if (fullPath is null)
@@ -2705,7 +2999,11 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                 document.LastKnownHash,
                 document.LastWriteTimeUtc,
                 document.Revision,
-                document.IsDirty || document.IsMissing || string.IsNullOrEmpty(document.FilePath)))
+                document.IsDirty || document.IsMissing || string.IsNullOrEmpty(document.FilePath),
+                document.ScrollLine,
+                document.ScrollPercent,
+                document.PreviewScrollLine,
+                document.PreviewScrollPercent))
             .ToList();
 
         return new DraftSession(
@@ -2732,6 +3030,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         _statsCancellation?.Dispose();
         _fontSizeSaveCancellation?.Cancel();
         _fontSizeSaveCancellation?.Dispose();
+        _translationCancellation?.Cancel();
+        _translationCancellation?.Dispose();
         _documentSwitchLock.Dispose();
     }
 
@@ -2744,5 +3044,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         int CodePage,
         bool HasBom,
         string LineEnding,
-        bool IsDirty);
+        bool IsDirty,
+        double ScrollLine,
+        double ScrollPercent,
+        double PreviewScrollLine,
+        double PreviewScrollPercent);
 }

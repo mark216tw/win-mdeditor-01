@@ -100,6 +100,84 @@
                     IsOpen="False"
                     Severity="Error" />
             </StackPanel>
+
+            <Border
+                Height="1"
+                Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+
+            <StackPanel Spacing="8">
+                <TextBlock
+                    Style="{ThemeResource SubtitleTextBlockStyle}"
+                    Text="翻譯" />
+
+                <TextBlock
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    Text="使用 OpenAI 相容的 Chat Completions API 翻譯整篇文章。文件內容會傳送到你設定的端點；API Key 儲存在 Windows 認證管理員，不會寫入設定檔。"
+                    TextWrapping="Wrap" />
+
+                <TextBox
+                    x:Name="TranslationEndpointTextBox"
+                    AutomationProperties.Name="翻譯 API 端點"
+                    Header="API 端點"
+                    PlaceholderText="https://api.openai.com/v1" />
+
+                <TextBox
+                    x:Name="TranslationModelTextBox"
+                    AutomationProperties.Name="翻譯模型"
+                    Header="模型"
+                    PlaceholderText="例如 gpt-4.1-mini" />
+
+                <ComboBox
+                    x:Name="TranslationSourceLanguageComboBox"
+                    AutomationProperties.Name="翻譯來源語言"
+                    Header="來源語言"
+                    HorizontalAlignment="Stretch" />
+
+                <ComboBox
+                    x:Name="TranslationTargetLanguageComboBox"
+                    AutomationProperties.Name="翻譯目標語言"
+                    Header="目標語言"
+                    HorizontalAlignment="Stretch" />
+
+                <PasswordBox
+                    x:Name="TranslationApiKeyPasswordBox"
+                    AutomationProperties.Name="翻譯 API Key"
+                    Header="API Key"
+                    PlaceholderText="留空表示沿用已儲存的金鑰"
+                    PasswordRevealMode="Peek" />
+
+                <TextBlock
+                    x:Name="TranslationApiKeyStatusText"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    TextWrapping="Wrap" />
+
+                <CheckBox
+                    x:Name="ClearTranslationApiKeyCheckBox"
+                    AutomationProperties.Name="清除已儲存的翻譯 API Key"
+                    Content="清除已儲存的 API Key" />
+
+                <StackPanel
+                    Orientation="Horizontal"
+                    Spacing="8">
+                    <Button
+                        x:Name="TestTranslationButton"
+                        AutomationProperties.Name="測試翻譯連線"
+                        Click="TestTranslationButton_Click"
+                        Content="測試連線" />
+
+                    <ProgressRing
+                        x:Name="TestTranslationProgressRing"
+                        Width="16"
+                        Height="16"
+                        IsActive="False" />
+                </StackPanel>
+
+                <InfoBar
+                    x:Name="TranslationInfoBar"
+                    IsClosable="True"
+                    IsOpen="False"
+                    Severity="Informational" />
+            </StackPanel>
         </StackPanel>
     </ScrollViewer>
 </ContentDialog>

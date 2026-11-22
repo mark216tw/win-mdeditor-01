@@ -50,6 +50,11 @@ public partial class App : Application
         builder.Services.AddSingleton<IDialogService, DialogService>();
         builder.Services.AddSingleton<IFileAssociationService, FileAssociationService>();
         builder.Services.AddSingleton<IUiDispatcher, UiDispatcher>();
+        builder.Services.AddSingleton(_ => new HttpClient { Timeout = Timeout.InfiniteTimeSpan });
+        builder.Services.AddSingleton<ITranslationCredentialStore, WindowsCredentialStore>();
+        builder.Services.AddSingleton<MarkdownTranslationExtractor>();
+        builder.Services.AddSingleton<ITranslationService, OpenAiCompatibleTranslationService>();
+        builder.Services.AddSingleton<IDocumentTranslationService, DocumentTranslationService>();
         builder.Services.AddSingleton<AutomationExportRunner>();
         builder.Services.AddSingleton<MainViewModel>();
         builder.Services.AddSingleton<MainWindow>();

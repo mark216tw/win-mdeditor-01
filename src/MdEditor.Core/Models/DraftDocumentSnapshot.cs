@@ -13,4 +13,8 @@ public sealed record DraftDocumentSnapshot(
     string LastKnownHash,
     DateTimeOffset LastWriteTimeUtc,
     long Revision,
-    bool PersistText);
+    bool PersistText,
+    double ScrollLine = 0,
+    double ScrollPercent = 0,
+    double PreviewScrollLine = 0,
+    double PreviewScrollPercent = 0);

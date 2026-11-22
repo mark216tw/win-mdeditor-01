@@ -4,7 +4,11 @@ public sealed record EditorContentChangedEventArgs(string DocumentId, string? Te
 
 public sealed record EditorSelectionChangedEventArgs(string DocumentId, int Line, int Column, int SelectionLength);
 
-public sealed record EditorScrollEventArgs(string DocumentId, double Percent, double Line = 0);
+public sealed record EditorScrollEventArgs(
+    string DocumentId,
+    double Percent,
+    double Line = 0,
+    bool Restoring = false);
 
 public interface IEditorHost
 {
@@ -24,7 +28,9 @@ public interface IEditorHost
 
     Task InitializeAsync();
 
-    Task SetContentAsync(string text, string documentId);
+    Task SetContentAsync(string text, string documentId, double scrollLine = 0, double scrollPercent = 0);
+
+    Task RestoreScrollAsync(string documentId, double scrollLine, double scrollPercent);
 
     Task<string> GetContentAsync(string documentId);
 

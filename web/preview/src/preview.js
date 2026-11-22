@@ -36,6 +36,10 @@ let currentDocumentId = null;
 let currentFontSize = 15;
 let wheelAccumulator = 0;
 let renderGeneration = 0;
+let suppressScrollReport = false;
+let scrollReportRaf = 0;
+let pendingScroll = null;
+let rendering = false;
 
 const highlightCache = new Map();
 const mathCache = new Map();
@@ -66,15 +70,93 @@ function trimCache(cache, limit) {
   }
 }
 
+function suppressProgrammaticScroll() {
+  suppressScrollReport = true;
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      suppressScrollReport = false;
+    });
+  });
+}
+
 function captureScrollPercent() {
   const max = document.documentElement.scrollHeight - window.innerHeight;
   return max > 0 ? Math.max(0, Math.min(1, window.scrollY / max)) : 0;
 }
 
 function restoreScrollPercent(percent) {
+  suppressProgrammaticScroll();
   const max = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
   window.scrollTo(0, Math.max(0, Math.min(1, percent)) * max);
 }
+
+function captureScrollPosition() {
+  const max = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+  const percent = max > 0 ? Math.max(0, Math.min(1, window.scrollY / max)) : 0;
+  const elements = content.querySelectorAll('[data-line]');
+  if (elements.length === 0) {
+    return { percent, line: 0 };
+  }
+
+  const scrollY = window.scrollY;
+  const anchorY = scrollY + 24;
+  let prevLine = 1;
+  let prevTop = 0;
+  let nextLine = null;
+  let nextTop = null;
+
+  for (const element of elements) {
+    const elementLine = Number(element.dataset.line);
+    if (!Number.isFinite(elementLine)) {
+      continue;
+    }
+
+    const top = Math.max(0, element.getBoundingClientRect().top + scrollY - 24);
+    if (top <= anchorY) {
+      if (elementLine >= prevLine) {
+        prevLine = elementLine;
+        prevTop = top;
+      }
+    } else if (nextLine === null || elementLine < nextLine) {
+      nextLine = elementLine;
+      nextTop = top;
+    }
+  }
+
+  let line = prevLine;
+  if (nextLine !== null && nextTop !== null && nextLine > prevLine && nextTop > prevTop) {
+    const ratio = Math.max(0, Math.min(1, (anchorY - prevTop) / (nextTop - prevTop)));
+    line = prevLine + ratio * (nextLine - prevLine);
+  }
+
+  return { percent, line };
+}
+
+window.addEventListener('scroll', () => {
+  if (rendering || suppressScrollReport || !currentDocumentId || scrollReportRaf) {
+    return;
+  }
+
+  scrollReportRaf = requestAnimationFrame(() => {
+    scrollReportRaf = 0;
+    if (rendering || suppressScrollReport || !currentDocumentId) {
+      return;
+    }
+
+    const position = captureScrollPosition();
+    pendingScroll = {
+      documentId: currentDocumentId,
+      percent: position.percent,
+      line: position.line,
+    };
+    send({
+      type: 'scroll',
+      documentId: currentDocumentId,
+      percent: position.percent,
+      line: position.line,
+    });
+  });
+}, { passive: true });
 
 function ensureMermaid() {
   if (mermaidApi) {
@@ -623,6 +705,7 @@ function enableTaskCheckboxes(root) {
 }
 
 function scrollToSourceLine(line, percent) {
+  suppressProgrammaticScroll();
   const maxScroll = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
   if (maxScroll <= 0 || (percent ?? 0) <= 0) {
     window.scrollTo(0, 0);
@@ -691,6 +774,11 @@ async function renderContent(data) {
   const sameDocument = Boolean(data.documentId) && data.documentId === currentDocumentId;
   const previousScroll = captureScrollPercent();
   currentDocumentId = data.documentId ?? null;
+  rendering = true;
+
+  if (pendingScroll && pendingScroll.documentId !== currentDocumentId) {
+    pendingScroll = null;
+  }
 
   highlightObserver.disconnect();
 
@@ -706,6 +794,10 @@ async function renderContent(data) {
 
     if (sameDocument) {
       restoreScrollPercent(previousScroll);
+    } else {
+      scrollToSourceLine(
+        Number(data.previewScrollLine),
+        Number(data.previewScrollPercent));
     }
 
     const mermaidBlocks = collectMermaidBlocks(content);
@@ -720,10 +812,21 @@ async function renderContent(data) {
       if (sameDocument) {
         restoreScrollPercent(previousScroll);
       } else {
-        window.scrollTo(0, 0);
+        scrollToSourceLine(
+          Number(data.previewScrollLine),
+          Number(data.previewScrollPercent));
+      }
+
+      if (pendingScroll && pendingScroll.documentId === currentDocumentId) {
+        scrollToSourceLine(pendingScroll.line, pendingScroll.percent);
       }
     }
   } finally {
+    if (generation === renderGeneration) {
+      suppressProgrammaticScroll();
+      rendering = false;
+    }
+
     send({ type: 'rendered', id: data.id });
   }
 }
@@ -809,6 +912,16 @@ window.chrome?.webview?.addEventListener('message', async (event) => {
       setFontSize(data.size);
       break;
     case 'scroll': {
+      pendingScroll = {
+        documentId: data.documentId || currentDocumentId,
+        percent: data.percent,
+        line: data.line,
+      };
+
+      if (data.documentId && data.documentId !== currentDocumentId) {
+        break;
+      }
+
       scrollToSourceLine(Number(data.line), data.percent);
       break;
     }

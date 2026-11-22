@@ -7,6 +7,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using VibeCode.MdEditor.Core.Services;
 using VibeCode.MdEditor.Models;
 using VibeCode.MdEditor.Services;
 using VibeCode.MdEditor.ViewModels;
@@ -29,6 +30,7 @@ public sealed partial class MainWindow : Window
     private readonly IDialogService _dialogs;
     private readonly IUiDispatcher _dispatcher;
     private readonly IFileAssociationService _fileAssociations;
+    private readonly ITranslationCredentialStore _translationCredentials;
     private readonly ILogger<MainWindow> _logger;
     private readonly UISettings _uiSettings = new();
     private SizeInt32 _lastNormalSize;
@@ -46,12 +48,14 @@ public sealed partial class MainWindow : Window
         IDialogService dialogs,
         IUiDispatcher dispatcher,
         IFileAssociationService fileAssociations,
+        ITranslationCredentialStore translationCredentials,
         ILogger<MainWindow> logger)
     {
         ViewModel = viewModel;
         _dialogs = dialogs;
         _dispatcher = dispatcher;
         _fileAssociations = fileAssociations;
+        _translationCredentials = translationCredentials;
         _logger = logger;
 
         InitializeComponent();
@@ -554,6 +558,17 @@ public sealed partial class MainWindow : Window
         var originalTheme = ViewModel.CurrentTheme;
         var originalThemeColor = ViewModel.CurrentThemeColor;
 
+        var hasTranslationApiKey = false;
+        try
+        {
+            hasTranslationApiKey = !string.IsNullOrWhiteSpace(
+                await _translationCredentials.GetApiKeyAsync());
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "讀取翻譯 API Key 失敗。");
+        }
+
         var dialog = new PreferencesDialog(
             originalTheme,
             originalThemeColor,
@@ -561,10 +576,19 @@ public sealed partial class MainWindow : Window
             ViewModel.WordWrapEnabled,
             ViewModel.EditorFontSize,
             ViewModel.EditorFontFamily,
-            _fileAssociations.IsRegistered)
+            _fileAssociations.IsRegistered,
+            ViewModel.TranslationSettings,
+            hasTranslationApiKey)
         {
             XamlRoot = RootGrid.XamlRoot,
             RequestedTheme = RootGrid.RequestedTheme,
+            TranslationTester = (endpoint, model, sourceLanguage, targetLanguage, apiKey) =>
+                ViewModel.TestTranslationSettingsAsync(
+                    endpoint,
+                    model,
+                    sourceLanguage,
+                    targetLanguage,
+                    apiKey),
         };
 
         void OnOpenDefaultAppsRequested(object? sender, EventArgs e)
@@ -621,6 +645,29 @@ public sealed partial class MainWindow : Window
             dialog.WordWrapEnabled,
             dialog.SelectedFontFamily,
             dialog.SelectedFontSize);
+
+        await ViewModel.ApplyTranslationSettingsAsync(
+            dialog.TranslationEndpoint,
+            dialog.TranslationModel,
+            dialog.TranslationSourceLanguage,
+            dialog.TranslationTargetLanguage);
+
+        try
+        {
+            if (dialog.ClearTranslationApiKey)
+            {
+                await _translationCredentials.SetApiKeyAsync(null);
+            }
+            else if (!string.IsNullOrWhiteSpace(dialog.TranslationApiKey))
+            {
+                await _translationCredentials.SetApiKeyAsync(dialog.TranslationApiKey);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "儲存翻譯 API Key 失敗。");
+            await _dialogs.ShowMessageAsync("翻譯設定", ex.Message);
+        }
 
         var shouldRegister = dialog.FileAssociationEnabled;
         if (shouldRegister == _fileAssociations.IsRegistered)
@@ -972,6 +1019,16 @@ public sealed partial class MainWindow : Window
         }
 
         ViewModel.ReopenClosedDocumentCommand.Execute(null);
+    }
+
+    private void TranslateAccelerator_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        if (HandleAccelerator(args))
+        {
+            return;
+        }
+
+        ViewModel.TranslateDocumentCommand.Execute(null);
     }
 
     private bool HandleAccelerator(KeyboardAcceleratorInvokedEventArgs args)

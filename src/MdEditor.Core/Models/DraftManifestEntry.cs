@@ -25,4 +25,12 @@ public sealed class DraftManifestEntry
     public long Revision { get; set; }
 
     public bool PersistText { get; set; }
+
+    public double ScrollLine { get; set; }
+
+    public double ScrollPercent { get; set; }
+
+    public double PreviewScrollLine { get; set; }
+
+    public double PreviewScrollPercent { get; set; }
 }

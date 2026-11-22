@@ -216,6 +216,37 @@ public sealed class SessionDraftServiceTests
         Assert.Equal("changed", session.Documents[0].Text);
     }
 
+    [Fact]
+    public async Task SaveAndLoad_RestoresScrollPosition()
+    {
+        using var temp = new TempDirectory();
+        var service = new SessionDraftService(temp.DirectoryPath);
+
+        await service.SaveAsync(new DraftSession(
+            null,
+            "Split",
+            [
+                CreateSnapshot(
+                    "doc1",
+                    "one",
+                    null,
+                    "one",
+                    isDirty: true,
+                    scrollLine: 42.25,
+                    scrollPercent: 0.375,
+                    previewScrollLine: 18.5,
+                    previewScrollPercent: 0.625),
+            ]));
+
+        var session = await service.LoadAsync();
+
+        Assert.NotNull(session);
+        Assert.Equal(42.25, session.Documents[0].ScrollLine);
+        Assert.Equal(0.375, session.Documents[0].ScrollPercent);
+        Assert.Equal(18.5, session.Documents[0].PreviewScrollLine);
+        Assert.Equal(0.625, session.Documents[0].PreviewScrollPercent);
+    }
+
     private static DraftDocumentSnapshot CreateSnapshot(
         string id,
         string title,
@@ -223,7 +254,11 @@ public sealed class SessionDraftServiceTests
         string text,
         bool isDirty,
         long revision = 1,
-        bool persistText = true)
+        bool persistText = true,
+        double scrollLine = 0,
+        double scrollPercent = 0,
+        double previewScrollLine = 0,
+        double previewScrollPercent = 0)
     {
         return new DraftDocumentSnapshot(
             id,
@@ -238,6 +273,10 @@ public sealed class SessionDraftServiceTests
             "hash",
             DateTimeOffset.UtcNow,
             revision,
-            persistText);
+            persistText,
+            scrollLine,
+            scrollPercent,
+            previewScrollLine,
+            previewScrollPercent);
     }
 }

@@ -32,6 +32,8 @@ public sealed partial class PreviewHostView : UserControl, IPreviewHost
 
     public event EventHandler<PreviewTaskToggledEventArgs>? TaskToggled;
 
+    public event EventHandler<PreviewScrollEventArgs>? ScrollChanged;
+
     public string? WebViewUserDataFolder { get; set; }
 
     public bool IsReady => _initializeTask is { IsCompletedSuccessfully: true };
@@ -59,7 +61,13 @@ public sealed partial class PreviewHostView : UserControl, IPreviewHost
         return Task.CompletedTask;
     }
 
-    public async Task RenderAsync(string html, string theme, string renderId, string documentId)
+    public async Task RenderAsync(
+        string html,
+        string theme,
+        string renderId,
+        string documentId,
+        double previewScrollLine = 0,
+        double previewScrollPercent = 0)
     {
         await InitializeAsync();
 
@@ -76,6 +84,8 @@ public sealed partial class PreviewHostView : UserControl, IPreviewHost
             theme = _theme,
             id = renderId,
             documentId,
+            previewScrollLine,
+            previewScrollPercent,
         });
 
         try
@@ -153,7 +163,7 @@ public sealed partial class PreviewHostView : UserControl, IPreviewHost
         return Task.CompletedTask;
     }
 
-    public Task SetScrollPercentAsync(double percent, double line = 0)
+    public Task SetScrollPercentAsync(double percent, double line = 0, string? documentId = null)
     {
         if (IsReady)
         {
@@ -162,6 +172,7 @@ public sealed partial class PreviewHostView : UserControl, IPreviewHost
                 type = "scroll",
                 percent,
                 line,
+                documentId,
             });
         }
 
@@ -392,6 +403,13 @@ public sealed partial class PreviewHostView : UserControl, IPreviewHost
 
                 case "fontSize":
                     FontSizeChanged?.Invoke(this, GetDouble(root, "size"));
+                    break;
+
+                case "scroll":
+                    ScrollChanged?.Invoke(this, new PreviewScrollEventArgs(
+                        GetString(root, "documentId"),
+                        GetDouble(root, "percent"),
+                        GetDouble(root, "line")));
                     break;
 
                 case "toggleTask":

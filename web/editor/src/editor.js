@@ -129,6 +129,8 @@ let currentFontSize = 14;
 let includeTextInChange = true;
 let currentDocumentId = null;
 let suppressChange = false;
+let suppressScrollReport = false;
+let restoreScrollTimer = null;
 let changeTimer = null;
 let selectionTimer = null;
 let scrollRaf = 0;
@@ -449,7 +451,7 @@ function getTopVisibleLine() {
   return line.number + fraction;
 }
 
-function sendScroll() {
+function sendScroll(restoring = false) {
   const scroller = view.scrollDOM;
   const max = scroller.scrollHeight - scroller.clientHeight;
   send({
@@ -457,6 +459,7 @@ function sendScroll() {
     documentId: currentDocumentId,
     percent: max > 0 ? scroller.scrollTop / max : 0,
     line: getTopVisibleLine(),
+    restoring,
   });
 }
 
@@ -467,7 +470,7 @@ view.scrollDOM.addEventListener('scroll', () => {
 
   scrollRaf = requestAnimationFrame(() => {
     scrollRaf = 0;
-    sendScroll();
+    sendScroll(suppressScrollReport);
   });
 }, { passive: true });
 
@@ -499,7 +502,37 @@ view.scrollDOM.addEventListener('wheel', (event) => {
   send({ type: 'fontSize', size: next });
 }, { passive: false });
 
-function setContent(text, documentId) {
+function applyScrollPosition(line, percent) {
+  const scroller = view.scrollDOM;
+  const numericLine = Number(line);
+  const numericPercent = Number(percent);
+
+  if (Number.isFinite(numericLine) && numericLine >= 1) {
+    const lineCount = view.state.doc.lines;
+    const clamped = Math.min(lineCount, numericLine);
+    const whole = Math.min(lineCount, Math.max(1, Math.floor(clamped)));
+    const fraction = Math.max(0, clamped - whole);
+    const docLine = view.state.doc.line(whole);
+    const block = view.lineBlockAt(docLine.from);
+    const docOffset = Math.max(0, scroller.getBoundingClientRect().top - view.documentTop);
+    const target = scroller.scrollTop + (block.top - docOffset) + (block.height * fraction);
+    scroller.scrollTop = Math.max(0, target);
+    return;
+  }
+
+  if (Number.isFinite(numericPercent) && numericPercent > 0) {
+    const max = scroller.scrollHeight - scroller.clientHeight;
+    scroller.scrollTop = max > 0 ? max * Math.min(1, numericPercent) : 0;
+  }
+}
+
+function setContent(text, documentId, scrollLine, scrollPercent) {
+  suppressScrollReport = true;
+  clearTimeout(restoreScrollTimer);
+  restoreScrollTimer = setTimeout(() => {
+    suppressScrollReport = false;
+  }, 150);
+
   if (currentDocumentId) {
     sessionStates.set(currentDocumentId, {
       state: view.state,
@@ -530,7 +563,7 @@ function setContent(text, documentId) {
     requestAnimationFrame(() => {
       if (currentDocumentId === documentId) {
         view.scrollDOM.scrollTop = cached.scrollTop;
-        sendScroll();
+        sendScroll(true);
       }
     });
   } else {
@@ -543,11 +576,27 @@ function setContent(text, documentId) {
       extensions: buildExtensions(),
     }));
     view.scrollDOM.scrollTop = 0;
+
+    const restoreLine = Number(scrollLine);
+    const restorePercent = Number(scrollPercent);
+    const shouldRestore =
+      (Number.isFinite(restoreLine) && restoreLine > 1) ||
+      (Number.isFinite(restorePercent) && restorePercent > 0);
+
+    if (documentId && shouldRestore) {
+      applyScrollPosition(restoreLine, restorePercent);
+      requestAnimationFrame(() => {
+        if (currentDocumentId === documentId) {
+          applyScrollPosition(restoreLine, restorePercent);
+          sendScroll(true);
+        }
+      });
+    }
   }
 
   suppressChange = false;
   sendSelection();
-  sendScroll();
+  sendScroll(true);
 }
 
 function setTheme(theme) {
@@ -919,7 +968,7 @@ window.chrome?.webview?.addEventListener('message', (event) => {
 
   switch (data.type) {
     case 'setContent':
-      setContent(data.text, data.documentId ?? null);
+      setContent(data.text, data.documentId ?? null, data.scrollLine, data.scrollPercent);
       send({ type: 'contentSet', id: data.id });
       break;
     case 'getContent':
@@ -970,6 +1019,12 @@ window.chrome?.webview?.addEventListener('message', (event) => {
     case 'scroll':
       view.scrollDOM.scrollTop =
         (view.scrollDOM.scrollHeight - view.scrollDOM.clientHeight) * (data.percent ?? 0);
+      break;
+    case 'restoreScroll':
+      if (!data.documentId || data.documentId === currentDocumentId) {
+        applyScrollPosition(data.scrollLine, data.scrollPercent);
+        sendScroll();
+      }
       break;
     case 'focus':
       view.focus();

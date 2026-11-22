@@ -4,6 +4,72 @@
 
 ---
 
+## 2026-11-22 - v1.4.1
+
+### 目標
+修正預覽區在切換分頁後回到頂端的問題，並讓預覽閱讀位置能跨分頁切換與程式重啟保留。
+
+### 變更
+- `web/preview/src/preview.js`：新增使用者捲動回報（`scroll`，含 `documentId`、`percent`、`line`）；以 `[data-line]` 錨點反推頂端可見行號；渲染與同步捲動期間抑制回報。
+- `renderContent`：切換文件時依 `previewScrollLine`／`previewScrollPercent` 還原，不再固定回到頂端；新增 `pendingScroll`，處理還原訊息比渲染先到的情況。
+- `IPreviewHost`／`PreviewHostView`：新增 `ScrollChanged` 事件；`RenderAsync` 增加預覽位置參數；`SetScrollPercentAsync` 增加 `documentId` 以避免套用到舊內容。
+- `EditorScrollEventArgs`：新增 `Restoring`；`editor.js` 在 `setContent` 期間的捲動回報標記為還原中，避免覆寫預覽位置。
+- `MainViewModel`：訂閱預覽捲動並保存各文件的預覽位置；載入文件後明確還原預覽位置，確保「預覽位置優先」；`ClosedDocumentSnapshot` 同步記錄。
+- `DraftManifestEntry`／`DraftDocumentSnapshot`／`SessionDraftService`：新增 `PreviewScrollLine`／`PreviewScrollPercent` 的保存與還原。
+
+### 問題與解法
+- 預覽切換文件時原本固定 `scrollTo(0, 0)` → 改為套用該文件記住的位置。
+- 編輯器載入後的同步捲動會覆蓋預覽位置 → 以 `restoring` 標記跳過載入期間的同步，載入後再套用預覽位置。
+- 還原訊息可能在渲染完成前送達 → 預覽端暫存 `pendingScroll`，渲染完成後再套用。
+
+### 待辦／已知限制
+- 預覽位置以 Markdown 區塊的 `data-line` 錨點估算，若文件內容在外部大幅變更，位置僅能近似對齊。
+- 已關閉且不在 `Ctrl+Shift+T` 歷史中的檔案仍不保留位置。
+
+## 2026-11-22 - v1.4.0
+
+### 目標
+讓每個開啟的 Markdown 文件記住上次的瀏覽進度，重新啟動程式或重開已關閉分頁後能接續閱讀位置。
+
+### 變更
+- `DraftManifestEntry`／`DraftDocumentSnapshot`：新增 `ScrollLine`（可視區域頂端行號，含小數比例）與 `ScrollPercent`。
+- `SessionDraftService`：manifest 寫入與載入時一併保存捲動位置；舊版 manifest 沒有欄位時以 0 處理。
+- `web/editor/src/editor.js`：`setContent` 接受 `scrollLine`／`scrollPercent`，首次載入時套用；新增 `restoreScroll` 指令與 `applyScrollPosition`，以行號為錨點換算 `scrollTop`。
+- `IEditorHost`／`EditorHostView`：`SetContentAsync` 增加捲動參數，新增 `RestoreScrollAsync`。
+- `MainViewModel`：`OnEditorScrollChanged` 一律更新目前文件的捲動位置；建立草稿快照與還原文件時帶入；`ClosedDocumentSnapshot` 記錄位置，重開分頁時還原。
+
+### 問題與解法
+- 只存 `scrollTop` 會受視窗大小、字型與換行影響 → 改存頂端可視行號與行內比例，載入後再換算成實際 `scrollTop`。
+- 分頁切換時編輯器已有記憶體快取 → 快取優先，只有在初次載入（例如程式重啟）時才使用持久化位置。
+- 直接寫入磁碟會拖慢捲動 → 只更新記憶體中的文件狀態，跟隨既有草稿儲存與關閉流程寫入 `session.json`。
+
+### 待辦／已知限制
+- 已關閉且未在 `Ctrl+Shift+T` 歷史中的檔案不會保留瀏覽進度。
+- 若還原後檔案內容已在外部大幅變更，行號錨點僅能近似對齊。
+
+## 2026-11-22 - v1.3.0
+
+### 目標
+新增整篇文章翻譯功能，讓使用者用 OpenAI 相容 API 將目前文件翻成指定語言，並保留 Markdown 結構。
+
+### 變更
+- `MdEditor.Core`：新增翻譯設定、語言清單、Markdown 擷取／還原、OpenAI 相容用戶端、回應解析與批次翻譯協調器。
+- `src/MdEditor/Services/WindowsCredentialStore.cs`：以 Windows 認證管理員保存 API Key，不寫入 `settings.json`。
+- `MainViewModel`：新增「翻譯整篇文章」與取消命令，翻譯完成後建立新的譯文分頁，原文不變。
+- `PreferencesDialog`：新增翻譯端點、模型、來源／目標語言、API Key 與測試連線。
+- `MainWindow`：新增翻譯選單項目、Ctrl+Alt+T 快捷鍵與翻譯中的取消按鈕。
+- 新增 `TranslationTests` 單元測試，涵蓋結構保留、frontmatter、CRLF、佔位符驗證與回應解析。
+
+### 問題與解法
+- Markdig 預設不提供行內元素的精確位置 → 擷取用 pipeline 加上 `UsePreciseSourceLocation()`。
+- 直接翻譯整段 Markdown 容易破壞格式 → 只將自然語言 literal 與 `⟦n⟧` 佔位符送出，模型回傳後再換回原始標記。
+- 認證管理員沒有現成 .NET API → 以 `advapi32` 的 `CredReadW`／`CredWriteW`／`CredDeleteW` 實作。
+
+### 待辦／已知限制
+- 翻譯品質取決於使用者選擇的模型與端點；目前僅支援 Chat Completions 相容格式。
+- 不會翻譯 YAML frontmatter、程式碼區塊、行內程式碼、HTML 與連結網址。
+- 尚未實測各家 OpenAI 相容服務（Ollama、OpenRouter、Azure OpenAI）的差異。
+
 ## 2026-11-22 - v1.2.0
 
 ### 目標

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using VibeCode.MdEditor.Core.Helpers;
 using VibeCode.MdEditor.Core.Models;
 
 namespace VibeCode.MdEditor.Core.Services;
@@ -105,8 +106,10 @@ public sealed class SettingsService : ISettingsService
     private static void Normalize(AppSettings settings)
     {
         settings.RecentFiles ??= [];
+        settings.Translation ??= new TranslationSettings();
 
         NormalizeThemeSettings(settings);
+        NormalizeTranslationSettings(settings.Translation);
 
         if (settings.ViewMode is not ("Edit" or "Preview" or "Split"))
         {
@@ -126,6 +129,27 @@ public sealed class SettingsService : ISettingsService
         settings.RecentFilesLimit = Math.Clamp(settings.RecentFilesLimit, 5, 100);
         settings.WindowWidth = Math.Clamp(settings.WindowWidth, 800, 10000);
         settings.WindowHeight = Math.Clamp(settings.WindowHeight, 500, 10000);
+    }
+
+    private static void NormalizeTranslationSettings(TranslationSettings translation)
+    {
+        translation.Endpoint = string.IsNullOrWhiteSpace(translation.Endpoint)
+            ? TranslationSettings.DefaultEndpoint
+            : translation.Endpoint.Trim();
+
+        if (!Uri.TryCreate(translation.Endpoint, UriKind.Absolute, out var endpointUri) ||
+            (endpointUri.Scheme != Uri.UriSchemeHttps &&
+             !(endpointUri.Scheme == Uri.UriSchemeHttp && endpointUri.IsLoopback)))
+        {
+            translation.Endpoint = TranslationSettings.DefaultEndpoint;
+        }
+
+        translation.Model = translation.Model?.Trim() ?? string.Empty;
+        translation.SourceLanguage = TranslationLanguageCatalog.ResolveSource(translation.SourceLanguage);
+        translation.TargetLanguage = TranslationLanguageCatalog.ResolveTarget(translation.TargetLanguage);
+        translation.MaxCharactersPerRequest = Math.Clamp(translation.MaxCharactersPerRequest, 500, 20000);
+        translation.Temperature = Math.Clamp(translation.Temperature, 0, 1);
+        translation.RequestTimeoutSeconds = Math.Clamp(translation.RequestTimeoutSeconds, 20, 600);
     }
 
     private static void NormalizeThemeSettings(AppSettings settings)

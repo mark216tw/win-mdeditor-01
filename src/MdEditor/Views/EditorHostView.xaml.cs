@@ -44,7 +44,11 @@ public sealed partial class EditorHostView : UserControl, IEditorHost
         return _initializeTask ??= InitializeCoreAsync();
     }
 
-    public async Task SetContentAsync(string text, string documentId)
+    public async Task SetContentAsync(
+        string text,
+        string documentId,
+        double scrollLine = 0,
+        double scrollPercent = 0)
     {
         await InitializeAsync();
         var requestId = Guid.NewGuid().ToString("N");
@@ -56,6 +60,8 @@ public sealed partial class EditorHostView : UserControl, IEditorHost
             type = "setContent",
             text,
             documentId,
+            scrollLine,
+            scrollPercent,
             id = requestId,
         });
 
@@ -67,6 +73,23 @@ public sealed partial class EditorHostView : UserControl, IEditorHost
         {
             _setContentRequests.Remove(requestId);
         }
+    }
+
+    public async Task RestoreScrollAsync(string documentId, double scrollLine, double scrollPercent)
+    {
+        if (_initializeTask is null)
+        {
+            return;
+        }
+
+        await InitializeAsync();
+        Post(new
+        {
+            type = "restoreScroll",
+            documentId,
+            scrollLine,
+            scrollPercent,
+        });
     }
 
     public async Task<string> GetContentAsync(string documentId)
@@ -375,7 +398,8 @@ public sealed partial class EditorHostView : UserControl, IEditorHost
                     ScrollChanged?.Invoke(this, new EditorScrollEventArgs(
                         GetString(root, "documentId"),
                         GetDouble(root, "percent"),
-                        GetDouble(root, "line")));
+                        GetDouble(root, "line"),
+                        GetBoolean(root, "restoring")));
                     break;
 
                 case "pasteImage":

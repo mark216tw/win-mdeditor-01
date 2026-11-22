@@ -31,4 +31,6 @@ public sealed class AppSettings
     public double EditorSplitRatio { get; set; } = 0.5;
 
     public List<RecentFileEntry> RecentFiles { get; set; } = [];
+
+    public TranslationSettings Translation { get; set; } = new();
 }

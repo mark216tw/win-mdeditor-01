@@ -76,6 +76,10 @@
                 Key="T"
                 Invoked="ReopenClosedAccelerator_Invoked"
                 Modifiers="Control,Shift" />
+            <KeyboardAccelerator
+                Key="T"
+                Invoked="TranslateAccelerator_Invoked"
+                Modifiers="Control,Menu" />
         </Grid.KeyboardAccelerators>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -128,6 +132,10 @@
                         Command="{x:Bind ViewModel.ExportHtmlCommand}"
                         Text="匯出 HTML..." />
                 </MenuFlyoutSubItem>
+                <MenuFlyoutItem
+                    Command="{x:Bind ViewModel.TranslateDocumentCommand}"
+                    KeyboardAcceleratorTextOverride="Ctrl+Alt+T"
+                    Text="翻譯整篇文章..." />
                 <MenuFlyoutSeparator />
                 <MenuFlyoutItem
                     Click="PreferencesItem_Click"
@@ -641,6 +649,18 @@
                         FontSize="12"
                         Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                         Text="{x:Bind ViewModel.BusyText, Mode=OneWay}" />
+                    <Button
+                        Width="Auto"
+                        Height="24"
+                        MinWidth="48"
+                        Padding="8,2"
+                        AutomationProperties.Name="取消翻譯"
+                        Command="{x:Bind ViewModel.CancelTranslationCommand}"
+                        Content="取消翻譯"
+                        FontSize="12"
+                        Style="{StaticResource ToolbarButtonStyle}"
+                        ToolTipService.ToolTip="取消目前的整篇翻譯"
+                        Visibility="{x:Bind ViewModel.TranslationCancelVisibility, Mode=OneWay}" />
                     <Button
                         Width="24"
                         Height="24"
