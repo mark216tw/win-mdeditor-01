@@ -4,6 +4,31 @@
 
 ---
 
+## 2026-11-22 - v1.2.0
+
+### 目標
+新增命令列匯出工具，讓使用者與自動化流程可直接輸出 Word／HTML／PDF，不需要手動開啟 App。
+
+### 變更
+- 新增 `src/MdEditor.Cli`：`mdeditor-cli.exe`、參數解析、Word 匯出、HTML／PDF 呼叫 App。
+- `src/MdEditor/Services/AutomationExportRunner`：以離屏視窗重用 `PreviewHostView` 完成 HTML／PDF 匯出，不建立 `MainViewModel`、不寫入最近檔案或草稿。
+- `src/MdEditor/App.xaml.cs`：在單一實例註冊前處理 `--automation-export`。
+- `WebViewEnvironmentProvider`：支援不同 user data folder；自動化使用 `WebView2Automation`。
+- `HtmlExportService`：公開支援主題判斷與主題清單。
+- `scripts/publish-release.ps1`：發佈時一併輸出 `mdeditor-cli.exe` 並放入 zip。
+- 新增 CLI／自動化參數單元測試，更新 README、使用指南、技術文件、系統架構、CHANGELOG 與 RELEASE_NOTES。
+
+### 問題與解法
+- `MdEditor.exe` 是 `WinExe`，直接附加主控台會造成輸出與管線問題 → 改為獨立 Console 專案。
+- HTML／PDF 的 KaTeX、Mermaid 與程式碼高亮依賴 WebView2 預覽 → CLI 以自動化參數呼叫 App，而非在 CLI 重新實作。
+- 自動化程序可能與執行中的 App 競爭 WebView2 user data folder → 使用獨立資料夾。
+- Windows 檔名不分大小寫，`mdeditor.exe` 會與 `MdEditor.exe` 衝突 → 使用 `mdeditor-cli.exe`。
+
+### 待辦／已知限制
+- CLI 首版只提供匯出，未包含 `open`、`info`、`check`、`toc`、草稿或設定命令。
+- HTML／PDF 需要 WebView2 Runtime；離屏視窗仍需在 Windows 桌面工作階段執行。
+- 尚未實測 Windows 10 1809 與 ARM64 實機。
+
 ## 2026-11-21 - v1.1.9
 
 ### 目標

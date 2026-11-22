@@ -29,6 +29,7 @@ Windows 10／11 的 Markdown 桌面編輯器。介面使用 WinUI 3，編輯器�
 - 最近開啟檔案清單（MRU），可從子選單釘選／移除目前檔案與清除清單。
 - 外部檔案變更偵測：開啟期間顯示提示並可重新載入；檔案被刪除或移動時改為提供關閉文件；啟動時若草稿與磁碟版本衝突，提供保留草稿／載入磁碟版本／並排比較；儲存前再次偵測外部變更並提示覆蓋或另存。
 - 匯出 PDF（A4）、Word（.docx）與單一 HTML（跟隨匯出當下的 App 主題）。
+- 提供 `mdeditor-cli.exe` 命令列匯出 Word／HTML／PDF。
 - 預覽支援 KaTeX 數學公式（`$...$`、`$$...$$`）與 Mermaid 流程圖／時序圖／類別圖等圖表，完全離線渲染。
 - 顯示模式（跟隨系統、淺色、深色）與主題顏色（護眼黃、晨光、薰衣草、森林綠、北歐藍、玫瑰粉）可獨立搭配，預設為護眼黃；「跟隨系統」會在執行期跟隨系統變化。
 - 編輯與預覽同步捲動（可停用）。
@@ -57,6 +58,22 @@ Windows 10／11 的 Markdown 桌面編輯器。介面使用 WinUI 3，編輯器�
 下載 zip 後解壓縮到任意資料夾，執行 `MdEditor.exe` 即可；不需要系統管理員權限。
 
 > 若要改為 Self-Contained 發佈，請參考 [建置與發佈](docs/建置與發佈.md)。
+
+## 命令列匯出
+
+發佈壓縮檔內附 `mdeditor-cli.exe`，可搭配自動化流程匯出檔案：
+
+```powershell
+mdeditor-cli.exe export docx note.md
+mdeditor-cli.exe export html note.md -o out\note.html --theme dark
+mdeditor-cli.exe export pdf  note.md -o out\note.pdf --force
+```
+
+- 未指定 `-o` 時，輸出到輸入檔旁，使用相同主檔名。
+- 預設不覆寫既有檔案；需要覆寫時加上 `--force`。
+- `--theme` 僅適用 HTML／PDF；未指定時使用 App 目前主題。
+- Word 匯出不需要 WebView2；HTML／PDF 需要 `MdEditor.exe` 與 `mdeditor-cli.exe` 位在同一資料夾，且已安裝 WebView2 Runtime。
+- `mdeditor-cli.exe help` 可查看完整用法與結束代碼。
 
 ## 快速開始
 
@@ -104,6 +121,7 @@ Windows 10／11 的 Markdown 桌面編輯器。介面使用 WinUI 3，編輯器�
 ```text
 src/MdEditor/             WinUI 3 應用程式（Views、ViewModels、Services、Assets）
 src/MdEditor.Core/        平台無關核心（Markdown、檔案、監看、設定、工作階段、Word 匯出）
+src/MdEditor.Cli/         命令列匯出工具
 tests/MdEditor.Tests/     xUnit 單元測試
 web/editor/               CodeMirror 6 編輯器原始碼與打包設定
 web/preview/              預覽頁面（Markdig HTML + highlight.js + KaTeX + Mermaid）

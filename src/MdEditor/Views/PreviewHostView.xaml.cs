@@ -32,6 +32,8 @@ public sealed partial class PreviewHostView : UserControl, IPreviewHost
 
     public event EventHandler<PreviewTaskToggledEventArgs>? TaskToggled;
 
+    public string? WebViewUserDataFolder { get; set; }
+
     public bool IsReady => _initializeTask is { IsCompletedSuccessfully: true };
 
     public Task InitializeAsync()
@@ -230,7 +232,7 @@ public sealed partial class PreviewHostView : UserControl, IPreviewHost
         {
             _readySource = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             await WaitForLoadedAsync();
-            var environment = await WebViewEnvironmentProvider.GetAsync()
+            var environment = await WebViewEnvironmentProvider.GetAsync(WebViewUserDataFolder)
                 .WaitAsync(TimeSpan.FromSeconds(20));
             await WebView.EnsureCoreWebView2Async(environment).AsTask()
                 .WaitAsync(TimeSpan.FromSeconds(20));

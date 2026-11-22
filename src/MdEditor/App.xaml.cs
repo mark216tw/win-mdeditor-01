@@ -50,6 +50,7 @@ public partial class App : Application
         builder.Services.AddSingleton<IDialogService, DialogService>();
         builder.Services.AddSingleton<IFileAssociationService, FileAssociationService>();
         builder.Services.AddSingleton<IUiDispatcher, UiDispatcher>();
+        builder.Services.AddSingleton<AutomationExportRunner>();
         builder.Services.AddSingleton<MainViewModel>();
         builder.Services.AddSingleton<MainWindow>();
 
@@ -62,6 +63,13 @@ public partial class App : Application
     {
         try
         {
+            var rawArguments = Environment.GetCommandLineArgs().Skip(1).ToArray();
+            if (AutomationExportArguments.IsAutomationRequest(rawArguments))
+            {
+                await RunAutomationExportAsync(rawArguments);
+                return;
+            }
+
             var activation = AppInstance.GetCurrent().GetActivatedEventArgs();
             var mainInstance = AppInstance.FindOrRegisterForKey(InstanceKey);
 
@@ -128,6 +136,76 @@ public partial class App : Application
             }
 
             Exit();
+        }
+    }
+
+    private async Task RunAutomationExportAsync(string[] rawArguments)
+    {
+        try
+        {
+            var request = AutomationExportArguments.Parse(rawArguments);
+            var settings = _host.Services.GetRequiredService<ISettingsService>();
+            await settings.LoadAsync();
+
+            var theme = request.Theme;
+            if (string.IsNullOrWhiteSpace(theme))
+            {
+                theme = AppThemeCatalog.Resolve(
+                    settings.Settings.Theme,
+                    settings.Settings.ThemeColor,
+                    Application.Current.RequestedTheme == ApplicationTheme.Dark).WebTheme;
+            }
+
+            theme = theme.Trim().ToLowerInvariant();
+            if (!HtmlExportService.IsSupportedTheme(theme))
+            {
+                throw new AutomationExportException(2, $"不支援的主題：{theme}");
+            }
+
+            var runner = _host.Services.GetRequiredService<AutomationExportRunner>();
+            await runner.RunAsync(request, theme, settings.Settings.EditorFontSize);
+            Environment.ExitCode = 0;
+        }
+        catch (AutomationExportException ex)
+        {
+            _logger.LogError(ex, "自動化匯出失敗。");
+            WriteAutomationError(ex.Message);
+            Environment.ExitCode = ex.ExitCode;
+        }
+        catch (FormatException ex)
+        {
+            _logger.LogError(ex, "自動化匯出參數錯誤。");
+            WriteAutomationError(ex.Message);
+            Environment.ExitCode = 2;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "自動化匯出失敗。");
+            WriteAutomationError(ex.Message);
+            Environment.ExitCode = 1;
+        }
+        finally
+        {
+            try
+            {
+                _host.Dispose();
+            }
+            catch (Exception)
+            {
+            }
+
+            Exit();
+        }
+    }
+
+    private static void WriteAutomationError(string message)
+    {
+        try
+        {
+            Console.Error.WriteLine(message);
+        }
+        catch (Exception)
+        {
         }
     }
 

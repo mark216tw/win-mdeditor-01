@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.2.0 - 2026-11-22
+
+### 新增
+
+- 新增 `mdeditor-cli.exe` 命令列匯出工具，支援 `export docx`、`export html`、`export pdf`、`help` 與 `version`。
+- CLI 支援預設輸出路徑、`-o`／`--output`、`--force`、`--quiet`，以及 HTML／PDF 的 `--theme`。
+- HTML／PDF 由 CLI 呼叫 `MdEditor.exe --automation-export`，在離屏視窗中重用預覽 WebView2，維持與 App 匯出相同的 KaTeX、Mermaid 與程式碼高亮結果。
+- 自動化匯出使用獨立的 WebView2 user data folder，且不寫入最近檔案或工作階段草稿。
+
 ## 1.1.9 - 2026-11-21
 
 ### 調整

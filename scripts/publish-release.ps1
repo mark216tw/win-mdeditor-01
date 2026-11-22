@@ -8,6 +8,7 @@ $ErrorActionPreference = 'Stop'
 
 $root = Split-Path -Parent $PSScriptRoot
 $project = Join-Path $root 'src\MdEditor\MdEditor.csproj'
+$cliProject = Join-Path $root 'src\MdEditor.Cli\MdEditor.Cli.csproj'
 $propsFile = Join-Path $root 'Directory.Build.props'
 $licenseFile = Join-Path $root 'LICENSE'
 $noticesFile = Join-Path $root 'THIRD-PARTY-NOTICES.txt'
@@ -15,6 +16,10 @@ $artifactRoot = Join-Path $root 'artifacts'
 
 if (-not (Test-Path -LiteralPath $project)) {
     throw "找不到專案：$project"
+}
+
+if (-not (Test-Path -LiteralPath $cliProject)) {
+    throw "找不到 CLI 專案：$cliProject"
 }
 
 if ([string]::IsNullOrWhiteSpace($Version)) {
@@ -75,6 +80,28 @@ foreach ($target in $targets) {
         throw "發佈失敗：$($target.Rid)"
     }
 
+    $cliArguments = @(
+        'publish', $cliProject,
+        '-c', 'Release',
+        '-r', $target.Rid,
+        '--self-contained', 'false',
+        "-p:Platform=$($target.Platform)",
+        "-p:PlatformTarget=$($target.Platform)",
+        "-p:Version=$Version",
+        "-p:AssemblyVersion=$assemblyVersion",
+        "-p:FileVersion=$fileVersion",
+        '-p:DebugSymbols=false',
+        '-p:DebugType=none',
+        '-o', $output,
+        '--nologo'
+    )
+
+    & dotnet @cliArguments
+
+    if ($LASTEXITCODE -ne 0) {
+        throw "CLI 發佈失敗：$($target.Rid)"
+    }
+
     Get-ChildItem -LiteralPath $output -Filter '*.pdb' -Recurse -File | Remove-Item -Force
 
     if (Test-Path -LiteralPath $licenseFile) {
@@ -94,6 +121,7 @@ MiniMdEditor v$Version（$($target.Rid)，非 Self-Contained）
 3. Microsoft Edge WebView2 Evergreen Runtime
 
 安裝完成後解壓縮至任意資料夾並執行 MdEditor.exe（無須系統管理員權限）。
+命令列匯出請執行 mdeditor-cli.exe（需與 MdEditor.exe 放在同一資料夾）。
 授權條款請見 LICENSE.txt 與 THIRD-PARTY-NOTICES.txt。
 更多說明：https://github.com/mark216tw/win-mdeditor-01
 "@

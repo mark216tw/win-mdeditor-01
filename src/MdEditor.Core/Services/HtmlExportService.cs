@@ -53,6 +53,9 @@ public sealed partial class HtmlExportService : IHtmlExportService
         "rose-dark",
     };
 
+    public static IReadOnlyList<string> SupportedThemes { get; } =
+        KnownThemes.OrderBy(theme => theme, StringComparer.Ordinal).ToArray();
+
     private readonly string _assetDirectory;
 
     public HtmlExportService()
@@ -63,6 +66,12 @@ public sealed partial class HtmlExportService : IHtmlExportService
     public HtmlExportService(string assetDirectory)
     {
         _assetDirectory = assetDirectory;
+    }
+
+    public static bool IsSupportedTheme(string? theme)
+    {
+        var normalized = theme?.Trim().ToLowerInvariant();
+        return normalized is not null && KnownThemes.Contains(normalized);
     }
 
     public async Task ExportAsync(

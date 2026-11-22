@@ -1,6 +1,12 @@
-# MiniMdEditor v1.1.9
+# MiniMdEditor v1.2.0
 
 Windows 10／11 的輕量原生 Markdown 桌面編輯器（支援 x64 與 ARM64），結合 WinUI 3 外殼、CodeMirror 6 編輯器與離線即時預覽。
+
+## v1.2.0 重點
+
+- **命令列匯出**：新增 `mdeditor-cli.exe`，可在不開啟 App 的情況下匯出 Word、HTML 與 PDF。
+- **與 App 相同的匯出品質**：HTML／PDF 由 CLI 呼叫 App 在離屏視窗完成，保留 KaTeX、Mermaid 與程式碼高亮。
+- **安全覆寫與自動化**：預設不覆寫既有檔案，支援 `--force`、`--quiet`、`--theme` 與明確的結束代碼。
 
 ## v1.1.9 重點
 
@@ -68,8 +74,8 @@ Windows 10／11 的輕量原生 Markdown 桌面編輯器（支援 x64 與 ARM64�
 
 | 檔案 | 架構 |
 | --- | --- |
-| `MdEditor-1.1.6-win-x64.zip` | x64（一般 Intel／AMD 電腦） |
-| `MdEditor-1.1.6-win-arm64.zip` | ARM64（Windows on Arm 裝置） |
+| `MdEditor-1.2.0-win-x64.zip` | x64（一般 Intel／AMD 電腦） |
+| `MdEditor-1.2.0-win-arm64.zip` | ARM64（Windows on Arm 裝置） |
 
 本發行版為**非 Self-Contained**（framework-dependent）套件，執行前請先安裝與 App 相同架構的執行環境：
 
