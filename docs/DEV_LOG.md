@@ -4,6 +4,33 @@
 
 ---
 
+## 2026-11-25 - v1.5.0
+
+### 目標
+新增原生 WinUI 3 尋找與取代列，並提供完整的跨視窗／編輯器／預覽區搜尋快捷鍵，讓編輯、預覽與並排模式皆可使用搜尋功能。
+
+### 變更
+- `src/MdEditor.Core`：新增 `SearchOptions`、`SearchResultSummary` 與 `SearchStatusFormatter`（相符筆數格式化、初始選取正規化與規則運算式檢查）。
+- `src/MdEditor/MainWindow.xaml`／`MainWindow.xaml.cs`／`Styles/ToolbarIcons.xaml`：
+  - 新增原生 WinUI 3 搜尋與取代列（跟隨全部 14 組主題），支援大小寫相符（`Alt+C`）、全字相符（`Alt+W`）、規則運算式（`Alt+R`）、相符筆數顯示、上一個／下一個、取代／全部取代。
+  - 工具列新增搜尋圖示按鈕（`Ctrl+F`）；「編輯」選單新增「尋找下一個（`F3`）」、「尋找上一個（`Shift+F3`）」。
+  - `RootGrid.KeyboardAccelerators` 新增 `Ctrl+F`、`Ctrl+H`、`F3`、`Shift+F3`，搜尋列內支援 `Enter`／`Shift+Enter`／`Ctrl+Alt+Enter`／`Esc`。
+- `src/MdEditor/ViewModels/MainViewModel.cs`：新增搜尋狀態與命令（`OpenFind`、`OpenReplace`、`FindNext`、`FindPrevious`、`ReplaceNext`、`ReplaceAll`、`CloseSearch`），開啟搜尋時自動帶入目前單行選取文字；切換分頁或檢視模式時自動同步搜尋狀態。
+- `web/editor/src/editor.js`／`src/MdEditor/Assets/Editor/editor.css`：以 `Prec.high` 攔截 `Mod-f`、`Mod-h`、`F3`、`Shift-F3`、`Escape` 轉交原生搜尋列；使用 `@codemirror/search` API（`SearchQuery`、`setSearchQuery`、`findNext`、`findPrevious`、`replaceNext`、`replaceAll`）執行高亮、跳轉、取代與即時筆數回報。
+- `web/preview/src/preview.js`／`src/MdEditor/Assets/Preview/preview.css`：新增預覽區文字節點搜尋、`<mark class="md-search-match">` 高亮、目前項目捲動對齊與 `Ctrl+F`／`Ctrl+H`／`F3`／`Shift+F3`／`Escape` 快捷鍵轉送；匯出 HTML 與列印 PDF 時自動移除搜尋標記。
+- `IEditorHost`／`EditorHostView`／`IPreviewHost`／`PreviewHostView`：補齊搜尋、跳轉、取代、清除與選取文字讀取介面。
+- `tests/MdEditor.Tests/SearchStatusFormatterTests.cs`：新增搜尋狀態格式化與規則運算式驗證單元測試。
+- `Directory.Build.props`／`CHANGELOG.md`／`RELEASE_NOTES.md`／`docs/使用指南.md`／`AGENTS.md`：版本升級至 `1.5.0` 並更新文件。
+
+### 問題與解法
+- 原本 `Ctrl+F` 僅在編輯器聚焦時有效，預覽模式無法搜尋，且從選單觸發時 `EditorCommandAsync` 後續呼叫 `FocusAsync()` 會把焦點搶回編輯器 → 改為統一的 WinUI 3 原生搜尋列，由 `RootGrid`、`editor.js` 與 `preview.js` 共同轉送快捷鍵，焦點穩定留在搜尋輸入框。
+- CodeMirror 6 `basicSetup` 內建 `searchKeymap` 會搶先攔截 `Mod-f` 與 `F3` → 以 `Prec.high(keymap.of(...))` 提升自訂快捷鍵優先順序。
+- WinUI 3 `ToggleButton.IsChecked` 為 `bool?`，雙向 `x:Bind` 綁定 `bool` 會編譯失敗 → 改用 `Mode=OneWay` 搭配 `Toggle*Command`。
+
+### 待辦／已知限制
+- 預覽模式僅支援搜尋與高亮跳轉，取代功能需於編輯或並排模式下使用。
+- 尚未實作跨分頁／資料夾全文搜尋。
+
 ## 2026-11-22 - v1.4.1
 
 ### 目標

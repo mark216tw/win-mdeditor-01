@@ -1,3 +1,5 @@
+using VibeCode.MdEditor.Core.Models;
+
 namespace VibeCode.MdEditor.Services;
 
 public sealed record EditorContentChangedEventArgs(string DocumentId, string? Text);
@@ -23,6 +25,8 @@ public interface IEditorHost
     event EventHandler<double>? FontSizeChanged;
 
     event EventHandler<EditorImagePasteEventArgs>? ImagePasted;
+
+    event EventHandler<SearchResultSummary>? SearchResultChanged;
 
     bool IsReady { get; }
 
@@ -53,6 +57,20 @@ public interface IEditorHost
     Task SetIncludeTextInChangeAsync(bool enabled);
 
     Task SetReadOnlyAsync(bool enabled);
+
+    Task SearchAsync(SearchOptions options, string? replaceText = null, bool jumpToMatch = false);
+
+    Task FindNextAsync();
+
+    Task FindPreviousAsync();
+
+    Task ReplaceNextAsync(string replaceText);
+
+    Task ReplaceAllAsync(string replaceText);
+
+    Task ClearSearchAsync();
+
+    Task<string> GetSelectedTextAsync();
 
     Task FocusAsync();
 }

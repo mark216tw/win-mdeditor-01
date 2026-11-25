@@ -190,3 +190,13 @@ body {
 .cm-editor .cm-scroller {
   overflow: auto;
 }
+
+.cm-searchMatch {
+  background-color: rgba(245, 184, 46, 0.35);
+  border-radius: 2px;
+}
+
+.cm-searchMatch.cm-searchMatch-selected {
+  background-color: rgba(235, 128, 35, 0.6);
+  outline: 1px solid rgba(235, 128, 35, 0.9);
+}

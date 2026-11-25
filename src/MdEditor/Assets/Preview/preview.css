@@ -508,6 +508,18 @@ body {
   color: var(--muted);
 }
 
+.markdown-body mark.md-search-match {
+  background-color: rgba(245, 184, 46, 0.42);
+  color: inherit;
+  padding: 0 1px;
+  border-radius: 2px;
+}
+
+.markdown-body mark.md-search-match.md-search-match-current {
+  background-color: rgba(235, 128, 35, 0.72);
+  outline: 1px solid rgba(235, 128, 35, 0.95);
+}
+
 @media print {
   :root,
   :root[data-theme] {

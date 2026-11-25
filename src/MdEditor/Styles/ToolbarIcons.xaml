@@ -74,6 +74,9 @@
     <Style x:Key="ToolbarRedoIcon" BasedOn="{StaticResource ToolbarIconStyle}" TargetType="Path">
         <Setter Property="Data" Value="M11.8,4.2 L15,7.2 L11.8,10.2 M14.6,7.2 L6.8,7.2 C4.4,7.2 2.8,8.8 2.8,11 C2.8,13.1 4.4,14.5 6.8,14.5 L9.5,14.5" />
     </Style>
+    <Style x:Key="ToolbarSearchIcon" BasedOn="{StaticResource ToolbarIconStyle}" TargetType="Path">
+        <Setter Property="Data" Value="M8,3 A5,5 0 1 1 7.99,3 Z M11.7,11.7 L15.5,15.5" />
+    </Style>
     <Style x:Key="ToolbarViewIcon" BasedOn="{StaticResource ToolbarIconStyle}" TargetType="Path">
         <Setter Property="Data" Value="M4.5,2.5 L13.5,2.5 A2,2 0 0 1 15.5,4.5 L15.5,13.5 A2,2 0 0 1 13.5,15.5 L4.5,15.5 A2,2 0 0 1 2.5,13.5 L2.5,4.5 A2,2 0 0 1 4.5,2.5 Z M8.2,2.5 L8.2,15.5 M10.6,6.4 L13.2,6.4 M10.6,9 L13.2,9 M10.6,11.6 L13.2,11.6" />
     </Style>

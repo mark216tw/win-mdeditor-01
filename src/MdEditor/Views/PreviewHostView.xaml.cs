@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.Web.WebView2.Core;
+using VibeCode.MdEditor.Core.Models;
 using VibeCode.MdEditor.Models;
 using VibeCode.MdEditor.Services;
 using Windows.ApplicationModel.DataTransfer;
@@ -12,6 +13,7 @@ public sealed partial class PreviewHostView : UserControl, IPreviewHost
 {
     private (string Id, TaskCompletionSource Completion)? _pendingRender;
     private (string Id, TaskCompletionSource<string> Completion)? _pendingExportHtml;
+    private readonly Dictionary<string, TaskCompletionSource<string>> _selectedTextRequests = new();
     private TaskCompletionSource? _pendingPrint;
     private Task? _initializeTask;
     private TaskCompletionSource? _readySource;
@@ -33,6 +35,8 @@ public sealed partial class PreviewHostView : UserControl, IPreviewHost
     public event EventHandler<PreviewTaskToggledEventArgs>? TaskToggled;
 
     public event EventHandler<PreviewScrollEventArgs>? ScrollChanged;
+
+    public event EventHandler<SearchResultSummary>? SearchResultChanged;
 
     public string? WebViewUserDataFolder { get; set; }
 
@@ -174,6 +178,96 @@ public sealed partial class PreviewHostView : UserControl, IPreviewHost
                 line,
                 documentId,
             });
+        }
+
+        return Task.CompletedTask;
+    }
+
+    public Task SearchAsync(SearchOptions options, bool jumpToFirst = true)
+    {
+        if (IsReady)
+        {
+            Post(new
+            {
+                type = "search",
+                query = options.Query,
+                caseSensitive = options.CaseSensitive,
+                wholeWord = options.WholeWord,
+                regexp = options.UseRegex,
+                jumpToFirst,
+            });
+        }
+
+        return Task.CompletedTask;
+    }
+
+    public Task FindNextAsync()
+    {
+        if (IsReady)
+        {
+            Post(new { type = "findNext" });
+        }
+
+        return Task.CompletedTask;
+    }
+
+    public Task FindPreviousAsync()
+    {
+        if (IsReady)
+        {
+            Post(new { type = "findPrevious" });
+        }
+
+        return Task.CompletedTask;
+    }
+
+    public Task ClearSearchAsync()
+    {
+        if (IsReady)
+        {
+            Post(new { type = "clearSearch" });
+        }
+
+        return Task.CompletedTask;
+    }
+
+    public async Task<string> GetSelectedTextAsync()
+    {
+        if (!IsReady)
+        {
+            return string.Empty;
+        }
+
+        var requestId = Guid.NewGuid().ToString("N");
+        var completion = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _selectedTextRequests[requestId] = completion;
+
+        Post(new
+        {
+            type = "getSelectedText",
+            id = requestId,
+        });
+
+        try
+        {
+            return await completion.Task.WaitAsync(TimeSpan.FromMilliseconds(500));
+        }
+        catch (TimeoutException)
+        {
+            return string.Empty;
+        }
+        finally
+        {
+            _selectedTextRequests.Remove(requestId);
+        }
+    }
+
+    public Task FocusAsync()
+    {
+        if (IsReady)
+        {
+            WebView.Focus(FocusState.Programmatic);
+            Post(new { type = "focus" });
         }
 
         return Task.CompletedTask;
@@ -418,6 +512,25 @@ public sealed partial class PreviewHostView : UserControl, IPreviewHost
                         GetInt32(root, "line"),
                         GetBoolean(root, "checked")));
                     break;
+
+                case "searchResult":
+                    SearchResultChanged?.Invoke(this, new SearchResultSummary(
+                        GetString(root, "documentId"),
+                        GetInt32(root, "currentIndex"),
+                        GetInt32(root, "totalCount"),
+                        GetBoolean(root, "validRegex")));
+                    break;
+
+                case "selectedText":
+                    {
+                        var requestId = GetString(root, "id");
+                        if (_selectedTextRequests.TryGetValue(requestId, out var completion))
+                        {
+                            completion.TrySetResult(GetString(root, "text"));
+                        }
+
+                        break;
+                    }
             }
         }
         catch (JsonException ex)

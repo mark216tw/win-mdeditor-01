@@ -1,8 +1,15 @@
 import { basicSetup } from 'codemirror';
 import { EditorView, keymap } from '@codemirror/view';
-import { EditorState, Compartment } from '@codemirror/state';
+import { EditorState, Compartment, Prec } from '@codemirror/state';
 import { indentWithTab, redo, selectAll, undo } from '@codemirror/commands';
-import { openSearchPanel } from '@codemirror/search';
+import {
+  SearchQuery,
+  setSearchQuery,
+  findNext,
+  findPrevious,
+  replaceNext,
+  replaceAll,
+} from '@codemirror/search';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { syntaxHighlighting } from '@codemirror/language';
 import { languages } from './languages.js';
@@ -133,9 +140,25 @@ let suppressScrollReport = false;
 let restoreScrollTimer = null;
 let changeTimer = null;
 let selectionTimer = null;
+let searchResultTimer = null;
+let activeSearch = null;
 let scrollRaf = 0;
 let wheelAccumulator = 0;
 const sessionStates = new Map();
+
+function getSingleLineSelection() {
+  const { from, to } = view.state.selection.main;
+  if (from === to) {
+    return '';
+  }
+
+  const text = view.state.sliceDoc(from, to);
+  if (text.includes('\n') || text.includes('\r') || text.length > 200) {
+    return '';
+  }
+
+  return text;
+}
 
 function send(message) {
   if (window.chrome?.webview) {
@@ -146,6 +169,51 @@ function send(message) {
 function buildExtensions() {
   return [
     basicSetup,
+    Prec.high(keymap.of([
+      {
+        key: 'Mod-f',
+        preventDefault: true,
+        run: () => {
+          send({ type: 'shortcut', name: 'find' });
+          return true;
+        },
+      },
+      {
+        key: 'Mod-h',
+        preventDefault: true,
+        run: () => {
+          send({ type: 'shortcut', name: 'replace' });
+          return true;
+        },
+      },
+      {
+        key: 'F3',
+        preventDefault: true,
+        run: () => {
+          send({ type: 'shortcut', name: 'findNext' });
+          return true;
+        },
+      },
+      {
+        key: 'Shift-F3',
+        preventDefault: true,
+        run: () => {
+          send({ type: 'shortcut', name: 'findPrevious' });
+          return true;
+        },
+      },
+      {
+        key: 'Escape',
+        run: () => {
+          if (!activeSearch) {
+            return false;
+          }
+
+          send({ type: 'shortcut', name: 'closeSearch' });
+          return true;
+        },
+      },
+    ])),
     keymap.of([
       indentWithTab,
       {
@@ -225,14 +293,6 @@ function buildExtensions() {
         preventDefault: true,
         run: () => {
           applyCommand('link');
-          return true;
-        },
-      },
-      {
-        key: 'Mod-h',
-        preventDefault: true,
-        run: () => {
-          applyCommand('replace');
           return true;
         },
       },
@@ -406,6 +466,11 @@ function buildExtensions() {
 
           send(message);
         }, 150);
+
+        if (activeSearch) {
+          clearTimeout(searchResultTimer);
+          searchResultTimer = setTimeout(() => reportSearchResult(), 160);
+        }
       }
 
       if (update.docChanged || update.selectionSet) {
@@ -923,15 +988,189 @@ function applyCommand(name) {
       view.focus();
       break;
     case 'find':
-      openSearchPanel(view);
+      send({ type: 'shortcut', name: 'find' });
       break;
     case 'replace':
-      openSearchPanel(view);
-      view.dom.querySelector('.cm-textfield[name="replace"]')?.focus();
+      send({ type: 'shortcut', name: 'replace' });
       break;
     default:
       break;
   }
+}
+
+function buildSearchQuery(options) {
+  return new SearchQuery({
+    search: options.query ?? '',
+    caseSensitive: Boolean(options.caseSensitive),
+    wholeWord: Boolean(options.wholeWord),
+    regexp: Boolean(options.regexp),
+    replace: options.replaceText ?? '',
+  });
+}
+
+function reportSearchResult() {
+  if (!activeSearch || !activeSearch.query) {
+    send({
+      type: 'searchResult',
+      documentId: currentDocumentId,
+      currentIndex: 0,
+      totalCount: 0,
+      validRegex: true,
+    });
+    return;
+  }
+
+  const query = buildSearchQuery(activeSearch);
+  if (!query.valid) {
+    send({
+      type: 'searchResult',
+      documentId: currentDocumentId,
+      currentIndex: 0,
+      totalCount: 0,
+      validRegex: false,
+    });
+    return;
+  }
+
+  const selection = view.state.selection.main;
+  const cursor = query.getCursor(view.state.doc);
+  let totalCount = 0;
+  let currentIndex = 0;
+  const maxCount = 10000;
+
+  for (let next = cursor.next(); !next.done; next = cursor.next()) {
+    totalCount += 1;
+    if (currentIndex === 0 &&
+        next.value.from === selection.from &&
+        next.value.to === selection.to) {
+      currentIndex = totalCount;
+    }
+
+    if (totalCount >= maxCount) {
+      break;
+    }
+  }
+
+  send({
+    type: 'searchResult',
+    documentId: currentDocumentId,
+    currentIndex,
+    totalCount,
+    validRegex: true,
+  });
+}
+
+function applySearch(data) {
+  const queryText = typeof data.query === 'string' ? data.query : '';
+  if (!queryText) {
+    clearSearch();
+    return;
+  }
+
+  activeSearch = {
+    query: queryText,
+    caseSensitive: Boolean(data.caseSensitive),
+    wholeWord: Boolean(data.wholeWord),
+    regexp: Boolean(data.regexp),
+    replaceText: typeof data.replaceText === 'string' ? data.replaceText : '',
+  };
+
+  const query = buildSearchQuery(activeSearch);
+  if (!query.valid) {
+    view.dispatch({ effects: setSearchQuery.of(new SearchQuery({ search: '' })) });
+    reportSearchResult();
+    return;
+  }
+
+  view.dispatch({ effects: setSearchQuery.of(query) });
+
+  if (data.jumpToMatch) {
+    const selection = view.state.selection.main;
+    const cursor = query.getCursor(view.state.doc);
+    let firstMatch = null;
+    let targetMatch = null;
+
+    for (let next = cursor.next(); !next.done; next = cursor.next()) {
+      if (!firstMatch) {
+        firstMatch = next.value;
+      }
+
+      if (next.value.from >= selection.from) {
+        targetMatch = next.value;
+        break;
+      }
+    }
+
+    const match = targetMatch ?? firstMatch;
+    if (match) {
+      view.dispatch({
+        selection: { anchor: match.from, head: match.to },
+        effects: EditorView.scrollIntoView(match.from, { y: 'center' }),
+      });
+    }
+  }
+
+  reportSearchResult();
+}
+
+function clearSearch() {
+  activeSearch = null;
+  clearTimeout(searchResultTimer);
+  view.dispatch({ effects: setSearchQuery.of(new SearchQuery({ search: '' })) });
+  send({
+    type: 'searchResult',
+    documentId: currentDocumentId,
+    currentIndex: 0,
+    totalCount: 0,
+    validRegex: true,
+  });
+}
+
+function runFindStep(direction) {
+  if (!activeSearch || !activeSearch.query) {
+    return;
+  }
+
+  const query = buildSearchQuery(activeSearch);
+  if (!query.valid) {
+    reportSearchResult();
+    return;
+  }
+
+  view.dispatch({ effects: setSearchQuery.of(query) });
+  const moved = direction >= 0 ? findNext(view) : findPrevious(view);
+  if (moved) {
+    view.dispatch({
+      effects: EditorView.scrollIntoView(view.state.selection.main.head, { y: 'center' }),
+    });
+  }
+
+  reportSearchResult();
+}
+
+function runReplace(all, replaceText) {
+  if (currentReadOnly || !activeSearch || !activeSearch.query) {
+    return;
+  }
+
+  activeSearch.replaceText = typeof replaceText === 'string' ? replaceText : '';
+  const query = buildSearchQuery(activeSearch);
+  if (!query.valid) {
+    reportSearchResult();
+    return;
+  }
+
+  view.dispatch({ effects: setSearchQuery.of(query) });
+  if (all) {
+    replaceAll(view);
+  } else {
+    replaceNext(view);
+    view.dispatch({
+      effects: EditorView.scrollIntoView(view.state.selection.main.head, { y: 'center' }),
+    });
+  }
+
+  reportSearchResult();
 }
 
 function toggleTaskAtLine(documentId, lineNumber, checked) {
@@ -1028,6 +1267,31 @@ window.chrome?.webview?.addEventListener('message', (event) => {
       break;
     case 'focus':
       view.focus();
+      break;
+    case 'search':
+      applySearch(data);
+      break;
+    case 'findNext':
+      runFindStep(1);
+      break;
+    case 'findPrevious':
+      runFindStep(-1);
+      break;
+    case 'replaceNext':
+      runReplace(false, data.replaceText);
+      break;
+    case 'replaceAll':
+      runReplace(true, data.replaceText);
+      break;
+    case 'clearSearch':
+      clearSearch();
+      break;
+    case 'getSelectedText':
+      send({
+        type: 'selectedText',
+        id: data.id,
+        text: getSingleLineSelection(),
+      });
       break;
     default:
       break;

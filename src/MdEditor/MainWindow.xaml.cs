@@ -1,6 +1,7 @@
 using System.Collections.Specialized;
 using System.Diagnostics;
 using Microsoft.Extensions.Logging;
+using Microsoft.UI.Input;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -16,6 +17,7 @@ using Windows.ApplicationModel.DataTransfer;
 using Windows.Graphics;
 using Windows.Storage;
 using Windows.System;
+using Windows.UI.Core;
 using Windows.UI.ViewManagement;
 
 namespace VibeCode.MdEditor;
@@ -71,6 +73,7 @@ public sealed partial class MainWindow : Window
         ViewModel.ThemeChanged += OnThemeChanged;
         ViewModel.PreferencesRequested += OnPreferencesRequested;
         ViewModel.RecentMenuStateChanged += OnRecentMenuStateChanged;
+        ViewModel.SearchFocusRequested += OnSearchFocusRequested;
         ViewModel.RecentFiles.CollectionChanged += OnRecentFilesChanged;
         ExternalChangeBar.Closed += (_, _) => ViewModel.IsExternalChangeVisible = false;
         ErrorBar.Closed += (_, _) => ViewModel.IsErrorVisible = false;
@@ -85,6 +88,7 @@ public sealed partial class MainWindow : Window
             ViewModel.ThemeChanged -= OnThemeChanged;
             ViewModel.PreferencesRequested -= OnPreferencesRequested;
             ViewModel.RecentMenuStateChanged -= OnRecentMenuStateChanged;
+            ViewModel.SearchFocusRequested -= OnSearchFocusRequested;
             ViewModel.RecentFiles.CollectionChanged -= OnRecentFilesChanged;
             ViewModel.Dispose();
             EditorHost.Close();
@@ -354,6 +358,18 @@ public sealed partial class MainWindow : Window
     private void OnPreferencesRequested(object? sender, EventArgs e)
     {
         _dispatcher.TryEnqueue(() => _ = ShowPreferencesAsync());
+    }
+
+    private void OnSearchFocusRequested(object? sender, bool focusReplace)
+    {
+        _dispatcher.TryEnqueue(() =>
+        {
+            var target = focusReplace && ReplaceTextBox.IsEnabled
+                ? ReplaceTextBox
+                : FindTextBox;
+            target.Focus(FocusState.Programmatic);
+            target.SelectAll();
+        });
     }
 
     private void OnRecentFilesChanged(object? sender, NotifyCollectionChangedEventArgs e)
@@ -1029,6 +1045,123 @@ public sealed partial class MainWindow : Window
         }
 
         ViewModel.TranslateDocumentCommand.Execute(null);
+    }
+
+    private void FindAccelerator_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        if (HandleAccelerator(args))
+        {
+            return;
+        }
+
+        ViewModel.OpenFindCommand.Execute(null);
+    }
+
+    private void ReplaceAccelerator_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        if (HandleAccelerator(args))
+        {
+            return;
+        }
+
+        ViewModel.OpenReplaceCommand.Execute(null);
+    }
+
+    private void FindNextAccelerator_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        if (HandleAccelerator(args))
+        {
+            return;
+        }
+
+        ViewModel.FindNextCommand.Execute(null);
+    }
+
+    private void FindPreviousAccelerator_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        if (HandleAccelerator(args))
+        {
+            return;
+        }
+
+        ViewModel.FindPreviousCommand.Execute(null);
+    }
+
+    private void SearchBar_KeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (e.Key == VirtualKey.Escape)
+        {
+            e.Handled = true;
+            ViewModel.CloseSearchCommand.Execute(null);
+            return;
+        }
+
+        var altDown = InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Menu)
+            .HasFlag(CoreVirtualKeyStates.Down);
+        var ctrlDown = InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Control)
+            .HasFlag(CoreVirtualKeyStates.Down);
+
+        if (altDown && !ctrlDown)
+        {
+            switch (e.Key)
+            {
+                case VirtualKey.C:
+                    e.Handled = true;
+                    ViewModel.ToggleSearchCaseSensitiveCommand.Execute(null);
+                    break;
+                case VirtualKey.W:
+                    e.Handled = true;
+                    ViewModel.ToggleSearchWholeWordCommand.Execute(null);
+                    break;
+                case VirtualKey.R:
+                    e.Handled = true;
+                    ViewModel.ToggleSearchUseRegexCommand.Execute(null);
+                    break;
+            }
+        }
+    }
+
+    private void FindTextBox_KeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (e.Key != VirtualKey.Enter)
+        {
+            return;
+        }
+
+        e.Handled = true;
+        var shiftDown = InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Shift)
+            .HasFlag(CoreVirtualKeyStates.Down);
+        if (shiftDown)
+        {
+            ViewModel.FindPreviousCommand.Execute(null);
+        }
+        else
+        {
+            ViewModel.FindNextCommand.Execute(null);
+        }
+    }
+
+    private void ReplaceTextBox_KeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (e.Key != VirtualKey.Enter)
+        {
+            return;
+        }
+
+        e.Handled = true;
+        var ctrlDown = InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Control)
+            .HasFlag(CoreVirtualKeyStates.Down);
+        var altDown = InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Menu)
+            .HasFlag(CoreVirtualKeyStates.Down);
+
+        if (ctrlDown && altDown)
+        {
+            ViewModel.ReplaceAllCommand.Execute(null);
+        }
+        else
+        {
+            ViewModel.ReplaceNextCommand.Execute(null);
+        }
     }
 
     private bool HandleAccelerator(KeyboardAcceleratorInvokedEventArgs args)

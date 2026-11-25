@@ -80,11 +80,28 @@
                 Key="T"
                 Invoked="TranslateAccelerator_Invoked"
                 Modifiers="Control,Menu" />
+            <KeyboardAccelerator
+                Key="F"
+                Invoked="FindAccelerator_Invoked"
+                Modifiers="Control" />
+            <KeyboardAccelerator
+                Key="H"
+                Invoked="ReplaceAccelerator_Invoked"
+                Modifiers="Control" />
+            <KeyboardAccelerator
+                Key="F3"
+                Invoked="FindNextAccelerator_Invoked"
+                Modifiers="None" />
+            <KeyboardAccelerator
+                Key="F3"
+                Invoked="FindPreviousAccelerator_Invoked"
+                Modifiers="Shift" />
         </Grid.KeyboardAccelerators>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="44" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
@@ -163,15 +180,21 @@
                     Text="全選" />
                 <MenuFlyoutSeparator />
                 <MenuFlyoutItem
-                    Command="{x:Bind ViewModel.EditorCommandCommand}"
-                    CommandParameter="find"
+                    Command="{x:Bind ViewModel.OpenFindCommand}"
                     KeyboardAcceleratorTextOverride="Ctrl+F"
                     Text="尋找..." />
                 <MenuFlyoutItem
-                    Command="{x:Bind ViewModel.EditorCommandCommand}"
-                    CommandParameter="replace"
+                    Command="{x:Bind ViewModel.OpenReplaceCommand}"
                     KeyboardAcceleratorTextOverride="Ctrl+H"
                     Text="取代..." />
+                <MenuFlyoutItem
+                    Command="{x:Bind ViewModel.FindNextCommand}"
+                    KeyboardAcceleratorTextOverride="F3"
+                    Text="尋找下一個" />
+                <MenuFlyoutItem
+                    Command="{x:Bind ViewModel.FindPreviousCommand}"
+                    KeyboardAcceleratorTextOverride="Shift+F3"
+                    Text="尋找上一個" />
             </MenuBarItem>
             <MenuBarItem AccessKey="V" Title="檢視 (V)">
                 <MenuFlyoutItem
@@ -434,6 +457,21 @@
                         Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
 
                     <Button
+                        AutomationProperties.Name="尋找"
+                        Command="{x:Bind ViewModel.OpenFindCommand}"
+                        Style="{StaticResource ToolbarButtonStyle}"
+                        ToolTipService.ToolTip="尋找 (Ctrl+F)">
+                        <Path Style="{StaticResource ToolbarSearchIcon}" />
+                    </Button>
+
+                    <Border
+                        Width="1"
+                        Height="16"
+                        Margin="4,0"
+                        VerticalAlignment="Center"
+                        Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+
+                    <Button
                         AutomationProperties.Name="切換檢視模式"
                         Command="{x:Bind ViewModel.CycleViewModeCommand}"
                         Style="{StaticResource ToolbarButtonStyle}"
@@ -569,8 +607,220 @@
             </ListView.ItemTemplate>
         </ListView>
 
-        <Grid
+        <Border
+            x:Name="SearchBar"
             Grid.Row="3"
+            Margin="8,4,8,4"
+            Padding="8,6"
+            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+            BorderThickness="1"
+            CornerRadius="8"
+            KeyDown="SearchBar_KeyDown"
+            Visibility="{x:Bind ViewModel.SearchBarVisibility, Mode=OneWay}">
+            <StackPanel Spacing="6">
+                <Grid ColumnSpacing="4">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" MaxWidth="360" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <Button
+                        Grid.Column="0"
+                        Width="28"
+                        Height="28"
+                        Padding="0"
+                        AutomationProperties.Name="展開或收合取代"
+                        Command="{x:Bind ViewModel.ToggleReplaceVisibilityCommand}"
+                        Style="{StaticResource ToolbarButtonStyle}"
+                        ToolTipService.ToolTip="展開／收合取代 (Ctrl+H)">
+                        <FontIcon
+                            FontFamily="{ThemeResource SymbolThemeFontFamily}"
+                            FontSize="11"
+                            Glyph="{x:Bind ViewModel.ReplaceToggleGlyph, Mode=OneWay}" />
+                    </Button>
+
+                    <TextBox
+                        x:Name="FindTextBox"
+                        Grid.Column="1"
+                        MinWidth="200"
+                        AutomationProperties.Name="尋找文字"
+                        KeyDown="FindTextBox_KeyDown"
+                        PlaceholderText="尋找..."
+                        Text="{x:Bind ViewModel.SearchQuery, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+
+                    <TextBlock
+                        Grid.Column="2"
+                        MinWidth="76"
+                        Margin="6,0"
+                        VerticalAlignment="Center"
+                        FontSize="12"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        Text="{x:Bind ViewModel.SearchMatchText, Mode=OneWay}"
+                        TextAlignment="Center" />
+
+                    <ToggleButton
+                        Grid.Column="3"
+                        Width="30"
+                        Height="28"
+                        MinWidth="0"
+                        Padding="0"
+                        AutomationProperties.Name="大小寫相符"
+                        Command="{x:Bind ViewModel.ToggleSearchCaseSensitiveCommand}"
+                        Content="Aa"
+                        CornerRadius="6"
+                        FontSize="12"
+                        IsChecked="{x:Bind ViewModel.SearchCaseSensitive, Mode=OneWay}"
+                        ToolTipService.ToolTip="大小寫相符 (Alt+C)" />
+
+                    <ToggleButton
+                        Grid.Column="4"
+                        Width="30"
+                        Height="28"
+                        MinWidth="0"
+                        Padding="0"
+                        AutomationProperties.Name="全字相符"
+                        Command="{x:Bind ViewModel.ToggleSearchWholeWordCommand}"
+                        Content="Ab"
+                        CornerRadius="6"
+                        FontSize="12"
+                        IsChecked="{x:Bind ViewModel.SearchWholeWord, Mode=OneWay}"
+                        ToolTipService.ToolTip="全字相符 (Alt+W)" />
+
+                    <ToggleButton
+                        Grid.Column="5"
+                        Width="30"
+                        Height="28"
+                        MinWidth="0"
+                        Padding="0"
+                        AutomationProperties.Name="規則運算式"
+                        Command="{x:Bind ViewModel.ToggleSearchUseRegexCommand}"
+                        Content=".*"
+                        CornerRadius="6"
+                        FontSize="12"
+                        IsChecked="{x:Bind ViewModel.SearchUseRegex, Mode=OneWay}"
+                        ToolTipService.ToolTip="規則運算式 (Alt+R)" />
+
+                    <Border
+                        Grid.Column="6"
+                        Width="1"
+                        Height="16"
+                        Margin="4,0"
+                        VerticalAlignment="Center"
+                        Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+
+                    <Button
+                        Grid.Column="7"
+                        Width="28"
+                        Height="28"
+                        AutomationProperties.Name="上一個相符項目"
+                        Command="{x:Bind ViewModel.FindPreviousCommand}"
+                        Style="{StaticResource ToolbarButtonStyle}"
+                        ToolTipService.ToolTip="上一個 (Shift+F3)">
+                        <FontIcon
+                            FontFamily="{ThemeResource SymbolThemeFontFamily}"
+                            FontSize="12"
+                            Glyph="&#xE74A;" />
+                    </Button>
+
+                    <Button
+                        Grid.Column="8"
+                        Width="28"
+                        Height="28"
+                        AutomationProperties.Name="下一個相符項目"
+                        Command="{x:Bind ViewModel.FindNextCommand}"
+                        Style="{StaticResource ToolbarButtonStyle}"
+                        ToolTipService.ToolTip="下一個 (F3)">
+                        <FontIcon
+                            FontFamily="{ThemeResource SymbolThemeFontFamily}"
+                            FontSize="12"
+                            Glyph="&#xE74B;" />
+                    </Button>
+
+                    <Button
+                        Grid.Column="10"
+                        Width="28"
+                        Height="28"
+                        AutomationProperties.Name="關閉搜尋列"
+                        Command="{x:Bind ViewModel.CloseSearchCommand}"
+                        Style="{StaticResource ToolbarButtonStyle}"
+                        ToolTipService.ToolTip="關閉 (Esc)">
+                        <FontIcon
+                            FontFamily="{ThemeResource SymbolThemeFontFamily}"
+                            FontSize="11"
+                            Glyph="&#xE711;" />
+                    </Button>
+                </Grid>
+
+                <Grid
+                    ColumnSpacing="4"
+                    Visibility="{x:Bind ViewModel.ReplaceRowVisibility, Mode=OneWay}">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="28" />
+                        <ColumnDefinition Width="*" MaxWidth="360" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <TextBox
+                        x:Name="ReplaceTextBox"
+                        Grid.Column="1"
+                        MinWidth="200"
+                        AutomationProperties.Name="取代文字"
+                        IsEnabled="{x:Bind ViewModel.IsReplaceInputEnabled, Mode=OneWay}"
+                        KeyDown="ReplaceTextBox_KeyDown"
+                        PlaceholderText="取代為..."
+                        Text="{x:Bind ViewModel.ReplaceText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+
+                    <Button
+                        Grid.Column="2"
+                        Height="30"
+                        Margin="4,0,0,0"
+                        Padding="10,0"
+                        AutomationProperties.Name="取代"
+                        Command="{x:Bind ViewModel.ReplaceNextCommand}"
+                        Content="取代"
+                        CornerRadius="6"
+                        FontSize="12"
+                        IsEnabled="{x:Bind ViewModel.CanReplace, Mode=OneWay}"
+                        ToolTipService.ToolTip="取代目前相符項目 (Enter)" />
+
+                    <Button
+                        Grid.Column="3"
+                        Height="30"
+                        Padding="10,0"
+                        AutomationProperties.Name="全部取代"
+                        Command="{x:Bind ViewModel.ReplaceAllCommand}"
+                        Content="全部取代"
+                        CornerRadius="6"
+                        FontSize="12"
+                        IsEnabled="{x:Bind ViewModel.CanReplace, Mode=OneWay}"
+                        ToolTipService.ToolTip="全部取代 (Ctrl+Alt+Enter)" />
+
+                    <TextBlock
+                        Grid.Column="4"
+                        Margin="8,0,0,0"
+                        VerticalAlignment="Center"
+                        FontSize="12"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        Text="僅在編輯或並排模式可取代"
+                        Visibility="{x:Bind ViewModel.PreviewReplaceHintVisibility, Mode=OneWay}" />
+                </Grid>
+            </StackPanel>
+        </Border>
+
+        <Grid
+            Grid.Row="4"
             Margin="8,0,8,0"
             ColumnSpacing="0">
             <Grid.ColumnDefinitions>
@@ -592,7 +842,7 @@
 
         <InfoBar
             x:Name="ExternalChangeBar"
-            Grid.Row="4"
+            Grid.Row="5"
             Margin="8,0,8,4"
             AutomationProperties.Name="ExternalChangeBar"
             IsClosable="True"
@@ -611,7 +861,7 @@
 
         <InfoBar
             x:Name="ErrorBar"
-            Grid.Row="5"
+            Grid.Row="6"
             Margin="8,0,8,4"
             AutomationProperties.Name="ErrorBar"
             IsClosable="True"
@@ -621,7 +871,7 @@
             Title="發生錯誤" />
 
         <Border
-            Grid.Row="6"
+            Grid.Row="7"
             Background="{ThemeResource LayerFillColorDefaultBrush}"
             BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
             BorderThickness="0,1,0,0">

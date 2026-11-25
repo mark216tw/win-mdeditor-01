@@ -156,7 +156,7 @@ docs/DEV_LOG.md                # 開發過程紀錄（必要）
   - 修改 `web/` 後需執行 `npm --prefix web install` 與 `npm --prefix web run build`，將 bundle 產出到 `src/MdEditor/Assets`。
   - 重建前若 App 正在執行，使用 `taskkill /F /T /IM MdEditor.exe` 終止整個程序樹，避免殘留 `msedgewebview2.exe` 鎖住 WebView2 使用者資料夾。
 - 已知限制：
-  - 已實作工作階段草稿暫存與還原，但尚未提供自動覆寫原檔（Auto-Save）與多版本歷史；尋找／取代使用 CodeMirror 內建面板。
+  - 已實作工作階段草稿暫存與還原，但尚未提供自動覆寫原檔（Auto-Save）與多版本歷史；尋找／取代目前為單一文件範圍（支援編輯、預覽與並排模式），尚未提供跨分頁全文搜尋。
   - 同步捲動為單向（依區塊行號錨點對齊）；預覽與 Word 匯出封鎖遠端圖片、原始 HTML 與跨上層目錄路徑。
   - Word 匯出尚不排版數學公式與 Mermaid 圖表；PDF 固定 A4。
   - 整篇翻譯需設定 OpenAI 相容端點、模型與 API Key；不翻譯 frontmatter、程式碼與連結網址，尚未實測各家相容服務。

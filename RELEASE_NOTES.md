@@ -1,6 +1,12 @@
-# MiniMdEditor v1.4.1
+# MiniMdEditor v1.5.0
 
 Windows 10／11 的輕量原生 Markdown 桌面編輯器（支援 x64 與 ARM64），結合 WinUI 3 外殼、CodeMirror 6 編輯器與離線即時預覽。
+
+## v1.5.0 重點
+
+- **原生尋找與取代列**：新增跟隨主題的 WinUI 3 搜尋列與工具列搜尋按鈕，即時顯示相符筆數，並支援大小寫相符、全字相符與規則運算式。
+- **全檢視模式支援**：不論在編輯、預覽或並排模式下皆可搜尋與高亮跳轉，開啟搜尋時會自動帶入已選取的單行文字。
+- **完整快捷鍵**：`Ctrl+F`（尋找）、`Ctrl+H`（取代）、`F3`／`Shift+F3`（下一個／上一個）、`Esc`（關閉），以及搜尋列內的 `Alt+C`／`Alt+W`／`Alt+R` 選項切換。
 
 ## v1.4.1 重點
 
@@ -92,8 +98,8 @@ Windows 10／11 的輕量原生 Markdown 桌面編輯器（支援 x64 與 ARM64�
 
 | 檔案 | 架構 |
 | --- | --- |
-| `MdEditor-1.4.1-win-x64.zip` | x64（一般 Intel／AMD 電腦） |
-| `MdEditor-1.4.1-win-arm64.zip` | ARM64（Windows on Arm 裝置） |
+| `MdEditor-1.5.0-win-x64.zip` | x64（一般 Intel／AMD 電腦） |
+| `MdEditor-1.5.0-win-arm64.zip` | ARM64（Windows on Arm 裝置） |
 
 本發行版為**非 Self-Contained**（framework-dependent）套件，執行前請先安裝與 App 相同架構的執行環境：
 
@@ -111,6 +117,7 @@ Windows 10／11 的輕量原生 Markdown 桌面編輯器（支援 x64 與 ARM64�
 - `Ctrl+Tab`／`Ctrl+Shift+Tab` 切換下一個／上一個分頁。
 - `Ctrl+1` 編輯、`Ctrl+2` 預覽、`Ctrl+3` 並排、`Ctrl+,` 偏好設定。
 - `Ctrl+B` 粗體、`Ctrl+I` 斜體、`Ctrl+K` 插入連結、`Ctrl+F` 尋找、`Ctrl+H` 取代。
+- `F3` 尋找下一個、`Shift+F3` 尋找上一個、`Esc` 關閉搜尋列。
 - `Ctrl+=`／`Ctrl+-`／`Ctrl+0` 或 `Ctrl+滑鼠滾輪` 放大、縮小、重設字型大小。
 - `Alt+F` 檔案選單、`Alt+E` 編輯選單、`Alt+V` 檢視選單、`Alt+W` 視窗選單。
 
@@ -128,6 +135,7 @@ Windows 10／11 的輕量原生 Markdown 桌面編輯器（支援 x64 與 ARM64�
 - HTML 匯出依賴 WebView2；遠端圖片保留原網址，KaTeX 字型由 jsDelivr CDN 載入，離線開啟時公式字型可能退化。
 - 含 Mermaid 圖表的文件首次預覽會稍慢（離線圖表引擎於首次遇到圖表時載入）；貨幣符號（如 `$5`）若與數學公式衝突請以 `\$` 跳脫。
 - 同步捲動為單向（編輯器捲動帶動預覽對齊）。
+- 尋找／取代目前為單一文件範圍（支援編輯、預覽與並排模式），尚未提供跨分頁全文搜尋；預覽模式僅支援搜尋與高亮跳轉，取代需在編輯或並排模式使用。
 - 已存檔且無未儲存變更的文件不重複保存全文暫存；若原檔在程式關閉期間被外部刪除，將無法從暫存還原內容。
 
 ## 授權與隱私

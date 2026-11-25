@@ -49,6 +49,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private CancellationTokenSource? _statsCancellation;
     private CancellationTokenSource? _fontSizeSaveCancellation;
     private CancellationTokenSource? _translationCancellation;
+    private CancellationTokenSource? _searchCancellation;
     private Task? _sessionRestoreTask;
     private TaskCompletionSource? _sessionRestoreCompletion;
     private long _previewRenderGeneration;
@@ -123,7 +124,73 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     [NotifyPropertyChangedFor(nameof(ViewModeLabel))]
     [NotifyPropertyChangedFor(nameof(ViewModeButtonText))]
     [NotifyPropertyChangedFor(nameof(ViewModeToolTip))]
+    [NotifyPropertyChangedFor(nameof(CanReplace))]
+    [NotifyPropertyChangedFor(nameof(IsReplaceInputEnabled))]
+    [NotifyPropertyChangedFor(nameof(PreviewReplaceHintVisibility))]
     public partial EditorViewMode ViewMode { get; set; }
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SearchBarVisibility))]
+    [NotifyPropertyChangedFor(nameof(ReplaceRowVisibility))]
+    public partial bool IsSearchOpen { get; set; }
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ReplaceRowVisibility))]
+    [NotifyPropertyChangedFor(nameof(ReplaceToggleGlyph))]
+    public partial bool IsReplaceVisible { get; set; }
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SearchMatchText))]
+    [NotifyPropertyChangedFor(nameof(CanReplace))]
+    public partial string SearchQuery { get; set; } = string.Empty;
+
+    [ObservableProperty]
+    public partial string ReplaceText { get; set; } = string.Empty;
+
+    [ObservableProperty]
+    public partial bool SearchCaseSensitive { get; set; }
+
+    [ObservableProperty]
+    public partial bool SearchWholeWord { get; set; }
+
+    [ObservableProperty]
+    public partial bool SearchUseRegex { get; set; }
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SearchMatchText))]
+    public partial int SearchCurrentIndex { get; set; }
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SearchMatchText))]
+    [NotifyPropertyChangedFor(nameof(HasSearchMatches))]
+    [NotifyPropertyChangedFor(nameof(CanReplace))]
+    public partial int SearchTotalCount { get; set; }
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SearchMatchText))]
+    [NotifyPropertyChangedFor(nameof(HasSearchMatches))]
+    [NotifyPropertyChangedFor(nameof(CanReplace))]
+    public partial bool IsSearchRegexValid { get; set; } = true;
+
+    public Visibility SearchBarVisibility => IsSearchOpen ? Visibility.Visible : Visibility.Collapsed;
+
+    public Visibility ReplaceRowVisibility => IsSearchOpen && IsReplaceVisible ? Visibility.Visible : Visibility.Collapsed;
+
+    public Visibility PreviewReplaceHintVisibility => ViewMode == EditorViewMode.Preview ? Visibility.Visible : Visibility.Collapsed;
+
+    public string ReplaceToggleGlyph => IsReplaceVisible ? "\uE70D" : "\uE76C";
+
+    public bool HasSearchMatches => IsSearchRegexValid && SearchTotalCount > 0;
+
+    public bool IsReplaceInputEnabled => ViewMode != EditorViewMode.Preview;
+
+    public bool CanReplace => IsReplaceInputEnabled && HasSearchMatches && !string.IsNullOrEmpty(SearchQuery);
+
+    public string SearchMatchText => SearchStatusFormatter.FormatMatchStatus(
+        SearchQuery,
+        SearchCurrentIndex,
+        SearchTotalCount,
+        IsSearchRegexValid);
 
     [ObservableProperty]
     public partial bool IsExternalChangeVisible { get; set; }
@@ -209,6 +276,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     public event EventHandler? RecentMenuStateChanged;
 
+    public event EventHandler<bool>? SearchFocusRequested;
+
     public async Task InitializeAsync(IEditorHost editor, IPreviewHost preview, string? filePath)
     {
         _editor = editor;
@@ -220,11 +289,13 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         editor.ShortcutRequested += OnShortcutRequested;
         editor.FontSizeChanged += OnEditorFontSizeChanged;
         editor.ImagePasted += OnEditorImagePasted;
+        editor.SearchResultChanged += OnEditorSearchResultChanged;
         preview.LinkRequested += OnPreviewLinkRequested;
         preview.ShortcutRequested += OnShortcutRequested;
         preview.FontSizeChanged += OnPreviewFontSizeChanged;
         preview.TaskToggled += OnPreviewTaskToggled;
         preview.ScrollChanged += OnPreviewScrollChanged;
+        preview.SearchResultChanged += OnPreviewSearchResultChanged;
 
         if (!_settings.IsLoaded)
         {
@@ -1260,6 +1331,391 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         {
             await _editor.FocusAsync();
         }
+
+        if (IsSearchOpen)
+        {
+            await ApplySearchAsync(jumpToMatch: false);
+        }
+    }
+
+    partial void OnSearchQueryChanged(string value)
+    {
+        if (IsSearchOpen)
+        {
+            ScheduleSearch(jumpToMatch: true);
+        }
+    }
+
+    partial void OnSearchCaseSensitiveChanged(bool value)
+    {
+        if (IsSearchOpen)
+        {
+            _ = ApplySearchAsync(jumpToMatch: true);
+        }
+    }
+
+    partial void OnSearchWholeWordChanged(bool value)
+    {
+        if (IsSearchOpen)
+        {
+            _ = ApplySearchAsync(jumpToMatch: true);
+        }
+    }
+
+    partial void OnSearchUseRegexChanged(bool value)
+    {
+        if (IsSearchOpen)
+        {
+            _ = ApplySearchAsync(jumpToMatch: true);
+        }
+    }
+
+    [RelayCommand]
+    private async Task OpenFindAsync()
+    {
+        if (_isClosing)
+        {
+            return;
+        }
+
+        IsSearchOpen = true;
+        var selected = await TryGetSelectedTextAsync();
+        if (!string.IsNullOrEmpty(selected))
+        {
+            SearchQuery = selected;
+        }
+        else if (!string.IsNullOrEmpty(SearchQuery))
+        {
+            await ApplySearchAsync(jumpToMatch: false);
+        }
+
+        SearchFocusRequested?.Invoke(this, false);
+    }
+
+    [RelayCommand]
+    private async Task OpenReplaceAsync()
+    {
+        if (_isClosing)
+        {
+            return;
+        }
+
+        IsSearchOpen = true;
+        IsReplaceVisible = true;
+        var selected = await TryGetSelectedTextAsync();
+        if (!string.IsNullOrEmpty(selected))
+        {
+            SearchQuery = selected;
+        }
+        else if (!string.IsNullOrEmpty(SearchQuery))
+        {
+            await ApplySearchAsync(jumpToMatch: false);
+        }
+
+        SearchFocusRequested?.Invoke(this, !string.IsNullOrEmpty(SearchQuery));
+    }
+
+    [RelayCommand]
+    private void ToggleReplaceVisibility()
+    {
+        IsReplaceVisible = !IsReplaceVisible;
+        if (IsReplaceVisible && IsSearchOpen)
+        {
+            SearchFocusRequested?.Invoke(this, !string.IsNullOrEmpty(SearchQuery));
+        }
+    }
+
+    [RelayCommand]
+    private void ToggleSearchCaseSensitive()
+    {
+        SearchCaseSensitive = !SearchCaseSensitive;
+    }
+
+    [RelayCommand]
+    private void ToggleSearchWholeWord()
+    {
+        SearchWholeWord = !SearchWholeWord;
+    }
+
+    [RelayCommand]
+    private void ToggleSearchUseRegex()
+    {
+        SearchUseRegex = !SearchUseRegex;
+    }
+
+    [RelayCommand]
+    private async Task CloseSearchAsync()
+    {
+        if (!IsSearchOpen)
+        {
+            return;
+        }
+
+        CancelPendingSearch();
+        IsSearchOpen = false;
+        SearchCurrentIndex = 0;
+        SearchTotalCount = 0;
+        IsSearchRegexValid = true;
+
+        if (_editor is not null)
+        {
+            await _editor.ClearSearchAsync();
+        }
+
+        if (_preview is not null)
+        {
+            await _preview.ClearSearchAsync();
+        }
+
+        if (ViewMode == EditorViewMode.Preview)
+        {
+            if (_preview is not null)
+            {
+                await _preview.FocusAsync();
+            }
+        }
+        else if (_editor is not null)
+        {
+            await _editor.FocusAsync();
+        }
+    }
+
+    [RelayCommand]
+    private async Task FindNextAsync()
+    {
+        if (_isClosing)
+        {
+            return;
+        }
+
+        if (!IsSearchOpen)
+        {
+            if (string.IsNullOrEmpty(SearchQuery))
+            {
+                await OpenFindAsync();
+                return;
+            }
+
+            IsSearchOpen = true;
+            await ApplySearchAsync(jumpToMatch: true);
+            return;
+        }
+
+        if (string.IsNullOrEmpty(SearchQuery))
+        {
+            SearchFocusRequested?.Invoke(this, false);
+            return;
+        }
+
+        if (ViewMode == EditorViewMode.Preview)
+        {
+            if (_preview is not null)
+            {
+                await _preview.FindNextAsync();
+            }
+        }
+        else if (_editor is not null)
+        {
+            await _editor.FindNextAsync();
+        }
+    }
+
+    [RelayCommand]
+    private async Task FindPreviousAsync()
+    {
+        if (_isClosing)
+        {
+            return;
+        }
+
+        if (!IsSearchOpen)
+        {
+            if (string.IsNullOrEmpty(SearchQuery))
+            {
+                await OpenFindAsync();
+                return;
+            }
+
+            IsSearchOpen = true;
+            await ApplySearchAsync(jumpToMatch: true);
+            return;
+        }
+
+        if (string.IsNullOrEmpty(SearchQuery))
+        {
+            SearchFocusRequested?.Invoke(this, false);
+            return;
+        }
+
+        if (ViewMode == EditorViewMode.Preview)
+        {
+            if (_preview is not null)
+            {
+                await _preview.FindPreviousAsync();
+            }
+        }
+        else if (_editor is not null)
+        {
+            await _editor.FindPreviousAsync();
+        }
+    }
+
+    [RelayCommand]
+    private async Task ReplaceNextAsync()
+    {
+        if (_isClosing || !CanReplace || _editor is null)
+        {
+            return;
+        }
+
+        await _editor.ReplaceNextAsync(ReplaceText);
+    }
+
+    [RelayCommand]
+    private async Task ReplaceAllAsync()
+    {
+        if (_isClosing || !CanReplace || _editor is null)
+        {
+            return;
+        }
+
+        await _editor.ReplaceAllAsync(ReplaceText);
+    }
+
+    private void CancelPendingSearch()
+    {
+        var previous = _searchCancellation;
+        _searchCancellation = null;
+        previous?.Cancel();
+        previous?.Dispose();
+    }
+
+    private void ScheduleSearch(bool jumpToMatch)
+    {
+        CancelPendingSearch();
+
+        if (string.IsNullOrEmpty(SearchQuery))
+        {
+            _ = ApplySearchAsync(jumpToMatch: false);
+            return;
+        }
+
+        var cancellation = new CancellationTokenSource();
+        _searchCancellation = cancellation;
+        _ = RunSearchDebouncedAsync(jumpToMatch, cancellation.Token);
+    }
+
+    private async Task RunSearchDebouncedAsync(bool jumpToMatch, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await Task.Delay(80, cancellationToken);
+        }
+        catch (TaskCanceledException)
+        {
+            return;
+        }
+
+        if (cancellationToken.IsCancellationRequested || !IsSearchOpen)
+        {
+            return;
+        }
+
+        await ApplySearchAsync(jumpToMatch);
+    }
+
+    private async Task ApplySearchAsync(bool jumpToMatch)
+    {
+        var options = new SearchOptions(
+            SearchQuery,
+            SearchCaseSensitive,
+            SearchWholeWord,
+            SearchUseRegex);
+
+        if (string.IsNullOrEmpty(options.Query))
+        {
+            SearchCurrentIndex = 0;
+            SearchTotalCount = 0;
+            IsSearchRegexValid = true;
+
+            if (_editor is not null)
+            {
+                await _editor.ClearSearchAsync();
+            }
+
+            if (_preview is not null)
+            {
+                await _preview.ClearSearchAsync();
+            }
+
+            return;
+        }
+
+        if (ViewMode != EditorViewMode.Preview && _editor is not null)
+        {
+            await _editor.SearchAsync(options, ReplaceText, jumpToMatch);
+        }
+
+        if (ViewMode != EditorViewMode.Edit && _preview is not null)
+        {
+            await _preview.SearchAsync(options, jumpToFirst: ViewMode == EditorViewMode.Preview && jumpToMatch);
+        }
+    }
+
+    private async Task<string> TryGetSelectedTextAsync()
+    {
+        try
+        {
+            var raw = ViewMode == EditorViewMode.Preview
+                ? (_preview is not null ? await _preview.GetSelectedTextAsync() : string.Empty)
+                : (_editor is not null ? await _editor.GetSelectedTextAsync() : string.Empty);
+            return SearchStatusFormatter.NormalizeInitialQuery(raw);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "讀取選取文字失敗。");
+            return string.Empty;
+        }
+    }
+
+    private void OnEditorSearchResultChanged(object? sender, SearchResultSummary summary)
+    {
+        if (ViewMode == EditorViewMode.Preview)
+        {
+            return;
+        }
+
+        ApplySearchResultSummary(summary);
+    }
+
+    private void OnPreviewSearchResultChanged(object? sender, SearchResultSummary summary)
+    {
+        if (ViewMode != EditorViewMode.Preview)
+        {
+            return;
+        }
+
+        ApplySearchResultSummary(summary);
+    }
+
+    private void ApplySearchResultSummary(SearchResultSummary summary)
+    {
+        if (!IsSearchOpen)
+        {
+            return;
+        }
+
+        var document = ActiveDocument;
+        if (document is not null &&
+            !string.IsNullOrEmpty(summary.DocumentId) &&
+            !string.Equals(document.Id, summary.DocumentId, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        SearchCurrentIndex = summary.CurrentIndex;
+        SearchTotalCount = summary.TotalCount;
+        IsSearchRegexValid = summary.IsValidRegex;
     }
 
     [RelayCommand]
@@ -1700,6 +2156,11 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                 document.PreviewScrollPercent,
                 document.PreviewScrollLine,
                 document.Id);
+        }
+
+        if (IsSearchOpen)
+        {
+            await ApplySearchAsync(jumpToMatch: false);
         }
     }
 
@@ -2142,6 +2603,21 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                 break;
             case "previousTab":
                 _ = SelectAdjacentDocumentAsync(-1);
+                break;
+            case "find":
+                _ = OpenFindAsync();
+                break;
+            case "replace":
+                _ = OpenReplaceAsync();
+                break;
+            case "findNext":
+                _ = FindNextAsync();
+                break;
+            case "findPrevious":
+                _ = FindPreviousAsync();
+                break;
+            case "closeSearch":
+                _ = CloseSearchAsync();
                 break;
         }
     }
@@ -3032,6 +3508,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         _fontSizeSaveCancellation?.Dispose();
         _translationCancellation?.Cancel();
         _translationCancellation?.Dispose();
+        _searchCancellation?.Cancel();
+        _searchCancellation?.Dispose();
         _documentSwitchLock.Dispose();
     }
 

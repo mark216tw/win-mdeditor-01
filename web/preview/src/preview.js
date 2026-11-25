@@ -40,6 +40,9 @@ let suppressScrollReport = false;
 let scrollReportRaf = 0;
 let pendingScroll = null;
 let rendering = false;
+let activeSearch = null;
+let searchMatches = [];
+let searchMatchIndex = -1;
 
 const highlightCache = new Map();
 const mathCache = new Map();
@@ -820,6 +823,10 @@ async function renderContent(data) {
       if (pendingScroll && pendingScroll.documentId === currentDocumentId) {
         scrollToSourceLine(pendingScroll.line, pendingScroll.percent);
       }
+
+      if (activeSearch) {
+        applyPreviewSearch(activeSearch, false, true);
+      }
     }
   } finally {
     if (generation === renderGeneration) {
@@ -849,6 +856,7 @@ async function rerenderMermaid() {
 
 async function preparePrint() {
   highlightObserver.disconnect();
+  clearPreviewSearchMarks();
 
   for (const code of content.querySelectorAll('pre code')) {
     if (isMermaidCode(code)) {
@@ -883,7 +891,218 @@ async function buildExportHtml() {
     element.removeAttribute('data-line');
   }
 
+  for (const mark of clone.querySelectorAll('mark.md-search-match')) {
+    const parent = mark.parentNode;
+    if (parent) {
+      parent.replaceChild(document.createTextNode(mark.textContent ?? ''), mark);
+      parent.normalize();
+    }
+  }
+
   return clone.innerHTML;
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function buildPreviewSearchRegex(options) {
+  if (!options || !options.query) {
+    return null;
+  }
+
+  let source = options.regexp ? options.query : escapeRegExp(options.query);
+  if (options.wholeWord) {
+    source = `\\b(?:${source})\\b`;
+  }
+
+  try {
+    return new RegExp(source, options.caseSensitive ? 'g' : 'gi');
+  } catch {
+    return null;
+  }
+}
+
+function clearPreviewSearchMarks() {
+  const parents = new Set();
+  for (const mark of content.querySelectorAll('mark.md-search-match')) {
+    const parent = mark.parentNode;
+    if (!parent) {
+      continue;
+    }
+
+    parent.replaceChild(document.createTextNode(mark.textContent ?? ''), mark);
+    parents.add(parent);
+  }
+
+  for (const parent of parents) {
+    parent.normalize();
+  }
+
+  searchMatches = [];
+  searchMatchIndex = -1;
+}
+
+function reportPreviewSearchResult(validRegex = true) {
+  send({
+    type: 'searchResult',
+    documentId: currentDocumentId,
+    currentIndex: searchMatchIndex >= 0 ? searchMatchIndex + 1 : 0,
+    totalCount: searchMatches.length,
+    validRegex,
+  });
+}
+
+function highlightPreviewMatch(index, shouldScroll) {
+  if (searchMatches.length === 0) {
+    searchMatchIndex = -1;
+    return;
+  }
+
+  if (searchMatchIndex >= 0 && searchMatchIndex < searchMatches.length) {
+    searchMatches[searchMatchIndex].classList.remove('md-search-match-current');
+  }
+
+  searchMatchIndex = ((index % searchMatches.length) + searchMatches.length) % searchMatches.length;
+  const target = searchMatches[searchMatchIndex];
+  target.classList.add('md-search-match-current');
+
+  if (shouldScroll) {
+    suppressProgrammaticScroll();
+    target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }
+}
+
+function applyPreviewSearch(data, shouldScroll, preserveIndex = false) {
+  const previousIndex = searchMatchIndex;
+  clearPreviewSearchMarks();
+
+  const queryText = typeof data?.query === 'string' ? data.query : '';
+  if (!queryText) {
+    activeSearch = null;
+    reportPreviewSearchResult(true);
+    return;
+  }
+
+  activeSearch = {
+    query: queryText,
+    caseSensitive: Boolean(data.caseSensitive),
+    wholeWord: Boolean(data.wholeWord),
+    regexp: Boolean(data.regexp),
+  };
+
+  const regex = buildPreviewSearchRegex(activeSearch);
+  if (!regex) {
+    reportPreviewSearchResult(false);
+    return;
+  }
+
+  const walker = document.createTreeWalker(
+    content,
+    NodeFilter.SHOW_TEXT,
+    {
+      acceptNode(node) {
+        if (!node.nodeValue || !node.nodeValue.trim()) {
+          return NodeFilter.FILTER_SKIP;
+        }
+
+        const parent = node.parentElement;
+        if (!parent) {
+          return NodeFilter.FILTER_REJECT;
+        }
+
+        if (parent.closest('script, style, .code-copy, .katex-mathml, mark.md-search-match')) {
+          return NodeFilter.FILTER_REJECT;
+        }
+
+        return NodeFilter.FILTER_ACCEPT;
+      },
+    },
+  );
+
+  const textNodes = [];
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    textNodes.push(node);
+  }
+
+  const maxMatches = 5000;
+  for (const textNode of textNodes) {
+    if (searchMatches.length >= maxMatches) {
+      break;
+    }
+
+    const text = textNode.nodeValue ?? '';
+    regex.lastIndex = 0;
+    let match = regex.exec(text);
+    if (!match) {
+      continue;
+    }
+
+    const fragment = document.createDocumentFragment();
+    let lastEnd = 0;
+
+    while (match && searchMatches.length < maxMatches) {
+      if (match[0].length === 0) {
+        regex.lastIndex += 1;
+        match = regex.exec(text);
+        continue;
+      }
+
+      if (match.index > lastEnd) {
+        fragment.appendChild(document.createTextNode(text.slice(lastEnd, match.index)));
+      }
+
+      const mark = document.createElement('mark');
+      mark.className = 'md-search-match';
+      mark.textContent = match[0];
+      fragment.appendChild(mark);
+      searchMatches.push(mark);
+
+      lastEnd = match.index + match[0].length;
+      match = regex.exec(text);
+    }
+
+    if (lastEnd < text.length) {
+      fragment.appendChild(document.createTextNode(text.slice(lastEnd)));
+    }
+
+    textNode.parentNode?.replaceChild(fragment, textNode);
+  }
+
+  if (searchMatches.length > 0) {
+    const nextIndex = preserveIndex && previousIndex >= 0
+      ? Math.min(previousIndex, searchMatches.length - 1)
+      : 0;
+    highlightPreviewMatch(nextIndex, shouldScroll);
+  }
+
+  reportPreviewSearchResult(true);
+}
+
+function clearPreviewSearch() {
+  activeSearch = null;
+  clearPreviewSearchMarks();
+  reportPreviewSearchResult(true);
+}
+
+function stepPreviewSearch(delta) {
+  if (searchMatches.length === 0) {
+    reportPreviewSearchResult(true);
+    return;
+  }
+
+  const start = searchMatchIndex < 0 ? (delta >= 0 ? 0 : searchMatches.length - 1) : searchMatchIndex + delta;
+  highlightPreviewMatch(start, true);
+  reportPreviewSearchResult(true);
+}
+
+function getPreviewSingleLineSelection() {
+  const text = window.getSelection()?.toString() ?? '';
+  if (!text || text.includes('\n') || text.includes('\r') || text.length > 200) {
+    return '';
+  }
+
+  return text;
 }
 
 window.chrome?.webview?.addEventListener('message', async (event) => {
@@ -932,13 +1151,55 @@ window.chrome?.webview?.addEventListener('message', async (event) => {
       await preparePrint();
       send({ type: 'printReady', id: data.id });
       break;
+    case 'search':
+      applyPreviewSearch(data, Boolean(data.jumpToFirst), false);
+      break;
+    case 'findNext':
+      stepPreviewSearch(1);
+      break;
+    case 'findPrevious':
+      stepPreviewSearch(-1);
+      break;
+    case 'clearSearch':
+      clearPreviewSearch();
+      break;
+    case 'getSelectedText':
+      send({
+        type: 'selectedText',
+        id: data.id,
+        text: getPreviewSingleLineSelection(),
+      });
+      break;
+    case 'focus':
+      window.focus();
+      break;
     default:
       break;
   }
 });
 
 window.addEventListener('keydown', (event) => {
-  if (!event.ctrlKey || event.altKey || event.repeat) {
+  if (event.repeat) {
+    return;
+  }
+
+  if (!event.ctrlKey && !event.altKey) {
+    if (event.key === 'F3') {
+      event.preventDefault();
+      send({ type: 'shortcut', name: event.shiftKey ? 'findPrevious' : 'findNext' });
+      return;
+    }
+
+    if (event.key === 'Escape' && activeSearch) {
+      event.preventDefault();
+      send({ type: 'shortcut', name: 'closeSearch' });
+      return;
+    }
+
+    return;
+  }
+
+  if (!event.ctrlKey || event.altKey) {
     return;
   }
 
@@ -964,6 +1225,8 @@ window.addEventListener('keydown', (event) => {
       ',': 'preferences',
       '-': 'zoomOut',
       '=': 'zoomIn',
+      f: 'find',
+      h: 'replace',
       n: 'new',
       o: 'open',
       s: 'save',

@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.Web.WebView2.Core;
+using VibeCode.MdEditor.Core.Models;
 using VibeCode.MdEditor.Models;
 using VibeCode.MdEditor.Services;
 
@@ -10,6 +11,7 @@ namespace VibeCode.MdEditor.Views;
 public sealed partial class EditorHostView : UserControl, IEditorHost
 {
     private readonly Dictionary<string, TaskCompletionSource<string>> _contentRequests = new();
+    private readonly Dictionary<string, TaskCompletionSource<string>> _selectedTextRequests = new();
     private readonly Dictionary<string, TaskCompletionSource> _setContentRequests = new();
     private Task? _initializeTask;
     private TaskCompletionSource? _readySource;
@@ -36,6 +38,8 @@ public sealed partial class EditorHostView : UserControl, IEditorHost
     public event EventHandler<double>? FontSizeChanged;
 
     public event EventHandler<EditorImagePasteEventArgs>? ImagePasted;
+
+    public event EventHandler<SearchResultSummary>? SearchResultChanged;
 
     public bool IsReady => _initializeTask is { IsCompletedSuccessfully: true };
 
@@ -261,6 +265,116 @@ public sealed partial class EditorHostView : UserControl, IEditorHost
         return Task.CompletedTask;
     }
 
+    public async Task SearchAsync(SearchOptions options, string? replaceText = null, bool jumpToMatch = false)
+    {
+        if (!IsReady)
+        {
+            return;
+        }
+
+        Post(new
+        {
+            type = "search",
+            query = options.Query,
+            caseSensitive = options.CaseSensitive,
+            wholeWord = options.WholeWord,
+            regexp = options.UseRegex,
+            replaceText = replaceText ?? string.Empty,
+            jumpToMatch,
+        });
+
+        await Task.CompletedTask;
+    }
+
+    public Task FindNextAsync()
+    {
+        if (IsReady)
+        {
+            Post(new { type = "findNext" });
+        }
+
+        return Task.CompletedTask;
+    }
+
+    public Task FindPreviousAsync()
+    {
+        if (IsReady)
+        {
+            Post(new { type = "findPrevious" });
+        }
+
+        return Task.CompletedTask;
+    }
+
+    public Task ReplaceNextAsync(string replaceText)
+    {
+        if (IsReady)
+        {
+            Post(new
+            {
+                type = "replaceNext",
+                replaceText,
+            });
+        }
+
+        return Task.CompletedTask;
+    }
+
+    public Task ReplaceAllAsync(string replaceText)
+    {
+        if (IsReady)
+        {
+            Post(new
+            {
+                type = "replaceAll",
+                replaceText,
+            });
+        }
+
+        return Task.CompletedTask;
+    }
+
+    public Task ClearSearchAsync()
+    {
+        if (IsReady)
+        {
+            Post(new { type = "clearSearch" });
+        }
+
+        return Task.CompletedTask;
+    }
+
+    public async Task<string> GetSelectedTextAsync()
+    {
+        if (!IsReady)
+        {
+            return string.Empty;
+        }
+
+        var requestId = Guid.NewGuid().ToString("N");
+        var completion = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _selectedTextRequests[requestId] = completion;
+
+        Post(new
+        {
+            type = "getSelectedText",
+            id = requestId,
+        });
+
+        try
+        {
+            return await completion.Task.WaitAsync(TimeSpan.FromMilliseconds(500));
+        }
+        catch (TimeoutException)
+        {
+            return string.Empty;
+        }
+        finally
+        {
+            _selectedTextRequests.Remove(requestId);
+        }
+    }
+
     public async Task FocusAsync()
     {
         if (_initializeTask is { IsFaulted: true } or { IsCanceled: true })
@@ -435,6 +549,25 @@ public sealed partial class EditorHostView : UserControl, IEditorHost
                         if (_setContentRequests.TryGetValue(requestId, out var completion))
                         {
                             completion.TrySetResult();
+                        }
+
+                        break;
+                    }
+
+                case "searchResult":
+                    SearchResultChanged?.Invoke(this, new SearchResultSummary(
+                        GetString(root, "documentId"),
+                        GetInt32(root, "currentIndex"),
+                        GetInt32(root, "totalCount"),
+                        GetBoolean(root, "validRegex")));
+                    break;
+
+                case "selectedText":
+                    {
+                        var requestId = GetString(root, "id");
+                        if (_selectedTextRequests.TryGetValue(requestId, out var completion))
+                        {
+                            completion.TrySetResult(GetString(root, "text"));
                         }
 
                         break;
